@@ -1,0 +1,142 @@
+[
+  {
+    "rank": 1,
+    "tokenAccount": "GzxYFTDg8VPGHmPNjvu6sAD98Sq51zyiWpHYu4jQwRnA",
+    "owner": "D2rU4Yi2wkityNsHsLKJUmzJmWbM1Fforu94gHcdVUD2",
+    "amount": "909743154.523302",
+    "state": "initialized"
+  },
+  {
+    "rank": 2,
+    "tokenAccount": "BTudQWDZt914CCpphrJ7i4sujVUw9xM7X1ULiH6WVm45",
+    "owner": "EqUoXQBh7md3vEbXKKd4K5BjN7kp65kki9aPnKraKMPx",
+    "amount": "24619194.850321",
+    "state": "initialized"
+  },
+  {
+    "rank": 3,
+    "tokenAccount": "BwuFu1j82ec2TpeGfErf8qy6i5XBkLxvyxbjNHnKv6pk",
+    "owner": "2yjzzp2mm4eWtC1zzAXphUG4fk6sx5AP7MeXNCPWvTNA",
+    "amount": "14100758.93861",
+    "state": "initialized"
+  },
+  {
+    "rank": 4,
+    "tokenAccount": "Exi7YiHzMN7LNX79JhxhDXH9iU3a1mmpsVYr5EkuXNMf",
+    "owner": "HnnBghrfotzpjrtXxpbBHTEKdgjMZv8RGZL7wsYeRVB9",
+    "amount": "13451405.645718",
+    "state": "initialized"
+  },
+  {
+    "rank": 5,
+    "tokenAccount": "4xr19ZjWwwYFMmZnrE4F2Jyy5yQz4DKNbJuRf3uCz2rK",
+    "owner": "GBG4ymM7byPRU1BHAZD7V3VsSktUPCuERquPNAjWq58r",
+    "amount": "12331086.979125",
+    "state": "initialized"
+  },
+  {
+    "rank": 6,
+    "tokenAccount": "ECbhYoEwuDmi1mBuoGGTGd8qdv6D7CnaSF22ypWV5iP2",
+    "owner": "3MaAteeSjeovHX1HA3d54UZh2GAJAo5jH7BCSuaz9LSd",
+    "amount": "11751154.502255",
+    "state": "initialized"
+  },
+  {
+    "rank": 7,
+    "tokenAccount": "HdPXNHbbLYwTWsVtXE9RaGv9FF7m3mYUxMHWxEZdKueR",
+    "owner": "A17cXwdWhjU2dm946zrfUhFCPCjwyUJeMzoB2C4MAUCN",
+    "amount": "3196169.590234",
+    "state": "initialized"
+  },
+  {
+    "rank": 8,
+    "tokenAccount": "GDW3zDhTbL2H5Y4vPHx29tMJJyFjTu6fjsNPv12hhMFV",
+    "owner": "AytpmYpS6W3Z3gGJRgMZqoiYkDzzu33TisaYPaTEWoKW",
+    "amount": "1757211.850111",
+    "state": "initialized"
+  },
+  {
+    "rank": 9,
+    "tokenAccount": "3Lb1vGXYhJt89pvdjCzrZE7R5JphfXQd4nyy9BsHfFLf",
+    "owner": "GctMVzK38TMjZ3Bh3NNWzeNnNtVFscMtH42Y3Z7xC2Eh",
+    "amount": "1736309.777384",
+    "state": "initialized"
+  },
+  {
+    "rank": 10,
+    "tokenAccount": "2W7SpvHHKzC2GPRSgt5ZpiSccamT6QryrrrC98jpyGyK",
+    "owner": "BUoGypEddXnjNbWAHmkdWTcZR2RbsUHxf1nKQfdREQrY",
+    "amount": "1415106.434157",
+    "state": "initialized"
+  },
+  {
+    "rank": 11,
+    "tokenAccount": "9uesdcqP1HFVRaXcubzod3cWFVtYfV2Z968kETp9Vpb6",
+    "owner": "6ZGNGQYm9bno1XEPiNbV2Ld3UjLUghM6MpEfy89XCSPN",
+    "amount": "1363946.166009",
+    "state": "initialized"
+  },
+  {
+    "rank": 12,
+    "tokenAccount": "P1WZ3vUz8BjdY6FS7Kw8Eq3wL7kU7h1X49jPmt4917z",
+    "owner": "9JGP3Ezp6FASGxn1hiXUBDzDmoMjGtGwjN9gyKy2h6nt",
+    "amount": "1220151.479804",
+    "state": "initialized"
+  },
+  {
+    "rank": 13,
+    "tokenAccount": "HcCY9n5fgF8T9Mo4WNN6Fwg3HuRxmxgbHoABUL3VDbQT",
+    "owner": "4V4e1VqiuGVxv29MjVtGZ9EpEMtxaZ4cGezzxwsSV4rS",
+    "amount": "865087.556976",
+    "state": "initialized"
+  },
+  {
+    "rank": 14,
+    "tokenAccount": "6cQGzyjCFPBaM1ME9onmiYzwKzmWA8Ba7aP6dBWNX6xn",
+    "owner": "9zUifxgFTk5z6XiVHPDvAnVuFQ6o7zqKED8yWuygH2hV",
+    "amount": "559667.352943",
+    "state": "initialized"
+  },
+  {
+    "rank": 15,
+    "tokenAccount": "EJHSNMzmPDHvvrixfoECb9hNvAnKrhEoCP2UhEs5ogab",
+    "owner": "AxV1MHhExZ7pJ7it85HWuT62MK1oXtKwiN9Ab9wStWio",
+    "amount": "421797.541458",
+    "state": "initialized"
+  },
+  {
+    "rank": 16,
+    "tokenAccount": "9pnMwVp4BAupjqxoSHnUP3VrdHfjgUKJaaYnLxEFqUVt",
+    "owner": "A2tSPo1xptkc1o8DxfrQRWCwwjqfUZucZE3ZvXCjh4wg",
+    "amount": "353937.970432",
+    "state": "initialized"
+  },
+  {
+    "rank": 17,
+    "tokenAccount": "D65EB1MwZ6pyTUMUP5QFfUpMiMa9NtCjvN1oGD8nJe2t",
+    "owner": "EssgYrhbLaQ6VeSsZHrXixcG4n2Y6PmHosCwopnRgEmn",
+    "amount": "279444.852103",
+    "state": "initialized"
+  },
+  {
+    "rank": 18,
+    "tokenAccount": "2TyE2cRErqDruSPrFfxWGyiufUCzFptFaqU6EHgLKMt7",
+    "owner": "43wiG28tm1dwcLhcZUvzYpc9GiGhwk3MrgKYf4A1cLBL",
+    "amount": "150683.466227",
+    "state": "initialized"
+  },
+  {
+    "rank": 19,
+    "tokenAccount": "9VqtxNibtGF3ESUD7Ef5kus9qMyy7nikngqzsppF6phh",
+    "owner": "HAK783tdYNRPN9eQK5FJYENxdMnuQxXHihjosGE5Qs8",
+    "amount": "149946.36302",
+    "state": "initialized"
+  },
+  {
+    "rank": 20,
+    "tokenAccount": "CXyMFxm78qpFTNrhEQhFBLo1xXBxfCrXjoT5zvDGtg8w",
+    "owner": "B935TZRCRZD8JXUH7RLPdAKmBdwVayLYypjnvQwpdnaG",
+    "amount": "119442.817339",
+    "state": "initialized"
+  }
+]

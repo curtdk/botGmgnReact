@@ -1,0 +1,625 @@
+================================================================================
+数据流日志
+导出时间: 2026/2/21 20:40:36
+日志条数: 60
+================================================================================
+
+[1] 20:40:30 [HeliusIntegration] 接收 GMGN Holder 数据
+    从 hook.js 接收到 12 个 holder 数据
+    数据: {
+  "count": 12,
+  "hasMonitor": false
+}
+
+[2] 20:40:30 [HeliusIntegration] 数据丢失警告
+    HeliusMonitor 未启动，无法处理 holder 数据
+    数据: {
+  "count": 12
+}
+
+[3] 20:40:31 [HeliusIntegration] 接收 GMGN Holder 数据
+    从 hook.js 接收到 12 个 holder 数据
+    数据: {
+  "count": 12,
+  "hasMonitor": false
+}
+
+[4] 20:40:31 [HeliusIntegration] 数据丢失警告
+    HeliusMonitor 未启动，无法处理 holder 数据
+    数据: {
+  "count": 12
+}
+
+[5] 20:40:32 [HeliusIntegration] HeliusMonitor 自动启动
+    检测到 mint 页面，自动启动 HeliusMonitor
+    数据: {
+  "mint": "Aw9bJxpqXyH6h86uBSGsupFLogB6BB1LQjspZsVpump",
+  "apiEnabled": false
+}
+
+[6] 20:40:32 [HeliusIntegration] 接收 GMGN Trade 数据
+    从 hook.js 接收到 2 个交易数据
+    数据: {
+  "count": 2,
+  "hasMonitor": true
+}
+
+[7] 20:40:32 [HeliusIntegration] 传递交易到 HeliusMonitor
+    将新交易 5NUyKTmd... 传递给 HeliusMonitor.signatureManager
+    数据: {
+  "signature": "5NUyKTmdwSCoiDTtR2yyZJvrKcmwFaf51q6QSSi2BVoog5nQzhQkLEfaaDSvyq3jFfb6g36msaQAvrdDP3ZNCdo9",
+  "source": "plugin"
+}
+
+[8] 20:40:33 [HeliusIntegration] 接收 GMGN Trade 数据
+    从 hook.js 接收到 1 个交易数据
+    数据: {
+  "count": 1,
+  "hasMonitor": true
+}
+
+[9] 20:40:33 [HeliusMonitor] 处理散户交易
+    处理散户 BoGw4ghc... 的交易，计入指标计算
+    数据: {
+  "address": "BoGw4ghcohmtzw2zZ5MxDL1mgnoSQH8pUwRsWArqUSgo",
+  "signature": "5NUyKTmdwSCoiDTtR2yyZJvrKcmwFaf51q6QSSi2BVoog5nQzhQkLEfaaDSvyq3jFfb6g36msaQAvrdDP3ZNCdo9",
+  "event": "buy",
+  "solChange": "-0.098765",
+  "tokenChange": "3520918.75",
+  "processedCount": 1,
+  "source": "GMGN"
+}
+
+[10] 20:40:33 [HeliusMonitor] 计算指标完成
+    指标计算完成：只计算散户交易，跳过庄家交易
+    数据: {
+  "散户交易数": 1,
+  "跳过庄家交易数": 0,
+  "过滤后用户数": 0,
+  "已落袋": "0.0000 SOL",
+  "本轮下注": "0.0988 SOL",
+  "本轮成本": "0.0988 SOL",
+  "浮盈浮亏": "0.0000 SOL",
+  "活跃用户": 1,
+  "已退出用户": 0
+}
+
+[11] 20:40:33 [HeliusIntegration] 接收 GMGN Holder 数据
+    从 hook.js 接收到 2 个 holder 数据
+    数据: {
+  "count": 2,
+  "hasMonitor": true
+}
+
+[12] 20:40:33 [HeliusIntegration] 传递数据到 HeliusMonitor
+    将 2 个 holder 传递给 HeliusMonitor.updateHolderData
+    数据: {
+  "count": 2
+}
+
+[13] 20:40:33 [HeliusMonitor] 开始评分流程
+    接收到 2 个 holder，开始执行评分
+    数据: {
+  "holderCount": 2
+}
+
+[14] 20:40:33 [HeliusMonitor] 步骤1: 更新用户信息
+    已更新 2 个用户的基础信息
+    数据: {
+  "userInfoCount": 2,
+  "modeSwitchCount": 0
+}
+
+[15] 20:40:33 [HeliusMonitor] 步骤2: 开始计算分数
+    使用 ScoringEngine 计算分数，配置项: 16 个
+    数据: {
+  "bossConfigKeys": 16,
+  "statusThreshold": 50,
+  "scoreThreshold": 100
+}
+
+[16] 20:40:33 [ScoringEngine] 开始计算分数
+    用户数: 2, 配置键数: 16
+    数据: {
+  "userCount": 2,
+  "configKeys": 16,
+  "enabledRules": [
+    "无资金来源",
+    "同源账户"
+  ]
+}
+
+[17] 20:40:33 [ScoringEngine] 分数计算完成
+    总用户: 2, 庄家: 0, 散户: 2
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "avgScore": "5.00",
+  "scoreDistribution": {
+    "0": 1,
+    "10": 1,
+    "20": 0,
+    "30": 0,
+    "40": 0,
+    "50": 0,
+    "60": 0,
+    "70": 0,
+    "80": 0
+  },
+  "allUserScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户",
+      "reasons": "无来源(+10)"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户",
+      "reasons": ""
+    }
+  ]
+}
+
+[18] 20:40:33 [HeliusMonitor] 步骤2: 分数计算完成
+    计算了 2 个用户的分数，识别出 0 个庄家
+    数据: {
+  "scoreMapSize": 2,
+  "whaleCount": 0,
+  "retailCount": 2
+}
+
+[19] 20:40:33 [HeliusMonitor] 步骤3: 存储分数到用户信息
+    已将分数存储到 2 个用户的 userInfo 中
+    数据: {
+  "updatedCount": 2
+}
+
+[20] 20:40:33 [HeliusMonitor] 步骤4: 过滤用户
+    根据阈值 100 过滤，保留 2 个用户
+    数据: {
+  "filteredCount": 2,
+  "threshold": 100
+}
+
+[21] 20:40:33 [HeliusMonitor] 计算指标完成
+    指标计算完成：只计算散户交易，跳过庄家交易
+    数据: {
+  "散户交易数": 1,
+  "跳过庄家交易数": 0,
+  "过滤后用户数": 2,
+  "已落袋": "-0.0988 SOL",
+  "本轮下注": "0.0000 SOL",
+  "本轮成本": "0.0000 SOL",
+  "浮盈浮亏": "0.0000 SOL",
+  "活跃用户": 0,
+  "已退出用户": 2
+}
+
+[22] 20:40:33 [HeliusMonitor] 评分流程完成
+    评分流程全部完成，用户数据已更新
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "filteredCount": 2
+}
+
+[23] 20:40:33 [HeliusIntegration] 发送数据到 Sidepanel
+    发送 2 个过滤后的用户数据到 Sidepanel UI
+    数据: {
+  "totalUsers": 2,
+  "filteredUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "scoreThreshold": 100,
+  "userScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户"
+    }
+  ]
+}
+
+[24] 20:40:33 [HeliusMonitor] 开始评分流程
+    接收到 2 个 holder，开始执行评分
+    数据: {
+  "holderCount": 2
+}
+
+[25] 20:40:33 [HeliusMonitor] 步骤1: 更新用户信息
+    已更新 2 个用户的基础信息
+    数据: {
+  "userInfoCount": 2,
+  "modeSwitchCount": 0
+}
+
+[26] 20:40:33 [HeliusMonitor] 步骤2: 开始计算分数
+    使用 ScoringEngine 计算分数，配置项: 16 个
+    数据: {
+  "bossConfigKeys": 16,
+  "statusThreshold": 50,
+  "scoreThreshold": 100
+}
+
+[27] 20:40:33 [ScoringEngine] 开始计算分数
+    用户数: 2, 配置键数: 16
+    数据: {
+  "userCount": 2,
+  "configKeys": 16,
+  "enabledRules": [
+    "无资金来源",
+    "同源账户"
+  ]
+}
+
+[28] 20:40:33 [ScoringEngine] 分数计算完成
+    总用户: 2, 庄家: 0, 散户: 2
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "avgScore": "5.00",
+  "scoreDistribution": {
+    "0": 1,
+    "10": 1,
+    "20": 0,
+    "30": 0,
+    "40": 0,
+    "50": 0,
+    "60": 0,
+    "70": 0,
+    "80": 0
+  },
+  "allUserScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户",
+      "reasons": "无来源(+10)"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户",
+      "reasons": ""
+    }
+  ]
+}
+
+[29] 20:40:33 [HeliusMonitor] 步骤2: 分数计算完成
+    计算了 2 个用户的分数，识别出 0 个庄家
+    数据: {
+  "scoreMapSize": 2,
+  "whaleCount": 0,
+  "retailCount": 2
+}
+
+[30] 20:40:33 [HeliusMonitor] 步骤3: 存储分数到用户信息
+    已将分数存储到 2 个用户的 userInfo 中
+    数据: {
+  "updatedCount": 2
+}
+
+[31] 20:40:33 [HeliusMonitor] 步骤4: 过滤用户
+    根据阈值 100 过滤，保留 2 个用户
+    数据: {
+  "filteredCount": 2,
+  "threshold": 100
+}
+
+[32] 20:40:33 [HeliusMonitor] 评分流程完成
+    评分流程全部完成，用户数据已更新
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "filteredCount": 2
+}
+
+[33] 20:40:33 [HeliusIntegration] 发送数据到 Sidepanel
+    发送 2 个过滤后的用户数据到 Sidepanel UI
+    数据: {
+  "totalUsers": 2,
+  "filteredUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "scoreThreshold": 100,
+  "userScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户"
+    }
+  ]
+}
+
+[34] 20:40:33 [HeliusIntegration] 接收 GMGN Trade 数据
+    从 hook.js 接收到 2 个交易数据
+    数据: {
+  "count": 2,
+  "hasMonitor": true
+}
+
+[35] 20:40:33 [HeliusIntegration] Sidepanel 消息发送成功
+    成功发送 2 个用户数据
+    数据: {
+  "success": true
+}
+
+[36] 20:40:33 [HeliusIntegration] Sidepanel 消息发送成功
+    成功发送 2 个用户数据
+    数据: {
+  "success": true
+}
+
+[37] 20:40:35 [HeliusIntegration] 接收 GMGN Holder 数据
+    从 hook.js 接收到 2 个 holder 数据
+    数据: {
+  "count": 2,
+  "hasMonitor": true
+}
+
+[38] 20:40:35 [HeliusIntegration] 传递数据到 HeliusMonitor
+    将 2 个 holder 传递给 HeliusMonitor.updateHolderData
+    数据: {
+  "count": 2
+}
+
+[39] 20:40:35 [HeliusMonitor] 开始评分流程
+    接收到 2 个 holder，开始执行评分
+    数据: {
+  "holderCount": 2
+}
+
+[40] 20:40:35 [HeliusMonitor] 步骤1: 更新用户信息
+    已更新 2 个用户的基础信息
+    数据: {
+  "userInfoCount": 2,
+  "modeSwitchCount": 0
+}
+
+[41] 20:40:35 [HeliusMonitor] 步骤2: 开始计算分数
+    使用 ScoringEngine 计算分数，配置项: 16 个
+    数据: {
+  "bossConfigKeys": 16,
+  "statusThreshold": 50,
+  "scoreThreshold": 100
+}
+
+[42] 20:40:35 [ScoringEngine] 开始计算分数
+    用户数: 2, 配置键数: 16
+    数据: {
+  "userCount": 2,
+  "configKeys": 16,
+  "enabledRules": [
+    "无资金来源",
+    "同源账户"
+  ]
+}
+
+[43] 20:40:35 [ScoringEngine] 分数计算完成
+    总用户: 2, 庄家: 0, 散户: 2
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "avgScore": "5.00",
+  "scoreDistribution": {
+    "0": 1,
+    "10": 1,
+    "20": 0,
+    "30": 0,
+    "40": 0,
+    "50": 0,
+    "60": 0,
+    "70": 0,
+    "80": 0
+  },
+  "allUserScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户",
+      "reasons": "无来源(+10)"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户",
+      "reasons": ""
+    }
+  ]
+}
+
+[44] 20:40:35 [HeliusMonitor] 步骤2: 分数计算完成
+    计算了 2 个用户的分数，识别出 0 个庄家
+    数据: {
+  "scoreMapSize": 2,
+  "whaleCount": 0,
+  "retailCount": 2
+}
+
+[45] 20:40:35 [HeliusMonitor] 步骤3: 存储分数到用户信息
+    已将分数存储到 2 个用户的 userInfo 中
+    数据: {
+  "updatedCount": 2
+}
+
+[46] 20:40:35 [HeliusMonitor] 步骤4: 过滤用户
+    根据阈值 100 过滤，保留 2 个用户
+    数据: {
+  "filteredCount": 2,
+  "threshold": 100
+}
+
+[47] 20:40:35 [HeliusMonitor] 评分流程完成
+    评分流程全部完成，用户数据已更新
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "filteredCount": 2
+}
+
+[48] 20:40:35 [HeliusIntegration] 发送数据到 Sidepanel
+    发送 2 个过滤后的用户数据到 Sidepanel UI
+    数据: {
+  "totalUsers": 2,
+  "filteredUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "scoreThreshold": 100,
+  "userScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户"
+    }
+  ]
+}
+
+[49] 20:40:35 [HeliusMonitor] 开始评分流程
+    接收到 2 个 holder，开始执行评分
+    数据: {
+  "holderCount": 2
+}
+
+[50] 20:40:35 [HeliusMonitor] 步骤1: 更新用户信息
+    已更新 2 个用户的基础信息
+    数据: {
+  "userInfoCount": 2,
+  "modeSwitchCount": 0
+}
+
+[51] 20:40:35 [HeliusMonitor] 步骤2: 开始计算分数
+    使用 ScoringEngine 计算分数，配置项: 16 个
+    数据: {
+  "bossConfigKeys": 16,
+  "statusThreshold": 50,
+  "scoreThreshold": 100
+}
+
+[52] 20:40:35 [ScoringEngine] 开始计算分数
+    用户数: 2, 配置键数: 16
+    数据: {
+  "userCount": 2,
+  "configKeys": 16,
+  "enabledRules": [
+    "无资金来源",
+    "同源账户"
+  ]
+}
+
+[53] 20:40:35 [ScoringEngine] 分数计算完成
+    总用户: 2, 庄家: 0, 散户: 2
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "avgScore": "5.00",
+  "scoreDistribution": {
+    "0": 1,
+    "10": 1,
+    "20": 0,
+    "30": 0,
+    "40": 0,
+    "50": 0,
+    "60": 0,
+    "70": 0,
+    "80": 0
+  },
+  "allUserScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户",
+      "reasons": "无来源(+10)"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户",
+      "reasons": ""
+    }
+  ]
+}
+
+[54] 20:40:35 [HeliusMonitor] 步骤2: 分数计算完成
+    计算了 2 个用户的分数，识别出 0 个庄家
+    数据: {
+  "scoreMapSize": 2,
+  "whaleCount": 0,
+  "retailCount": 2
+}
+
+[55] 20:40:35 [HeliusMonitor] 步骤3: 存储分数到用户信息
+    已将分数存储到 2 个用户的 userInfo 中
+    数据: {
+  "updatedCount": 2
+}
+
+[56] 20:40:35 [HeliusMonitor] 步骤4: 过滤用户
+    根据阈值 100 过滤，保留 2 个用户
+    数据: {
+  "filteredCount": 2,
+  "threshold": 100
+}
+
+[57] 20:40:35 [HeliusMonitor] 评分流程完成
+    评分流程全部完成，用户数据已更新
+    数据: {
+  "totalUsers": 2,
+  "whaleCount": 0,
+  "filteredCount": 2
+}
+
+[58] 20:40:35 [HeliusIntegration] 发送数据到 Sidepanel
+    发送 2 个过滤后的用户数据到 Sidepanel UI
+    数据: {
+  "totalUsers": 2,
+  "filteredUsers": 2,
+  "whaleCount": 0,
+  "retailCount": 2,
+  "scoreThreshold": 100,
+  "userScores": [
+    {
+      "address": "FRQTaux2...",
+      "score": 10,
+      "status": "散户"
+    },
+    {
+      "address": "BoGw4ghc...",
+      "score": 0,
+      "status": "散户"
+    }
+  ]
+}
+
+[59] 20:40:35 [HeliusIntegration] Sidepanel 消息发送成功
+    成功发送 2 个用户数据
+    数据: {
+  "success": true
+}
+
+[60] 20:40:35 [HeliusIntegration] Sidepanel 消息发送成功
+    成功发送 2 个用户数据
+    数据: {
+  "success": true
+}
+

@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GMGN 标准设置</title>
+<style>
+body{font-family:system-ui,Arial;margin:0}
+.bar{padding:10px;border-bottom:1px solid #eee;background:#fafafa}
+.wrap{padding:10px}
+.row{display:flex;align-items:center;gap:8px;margin:10px 0}
+.btn{background:#2563eb;color:#fff;border:0;border-radius:4px;padding:6px 10px;cursor:pointer}
+input[type="text"]{padding:6px;border:1px solid #ddd;border-radius:4px}
+</style>
+<div class="bar">GMGN 标准设置</div>
+<div class="wrap">
+  <div class="row"><label style="width:80px">Limit：</label><input id="holder_limit" type="number" min="1" value="100"/></div>
+  <div class="row"><label style="width:80px">最大数：</label><input id="holder_max" type="number" min="10" value="1000"/></div>
+  <div class="row"><button id="save" class="btn">保存</button><span id="status" style="font-size:12px;color:#374151"></span></div>
+</div>
+<script>
+async function load(){
+  const v=await chrome.storage.sync.get(['holder_limit','holder_max']);
+  document.getElementById('holder_limit').value = (v.holder_limit ?? 100);
+  document.getElementById('holder_max').value = (v.holder_max ?? 1000);
+}
+async function save(){
+  const limit = parseInt(document.getElementById('holder_limit').value)||100;
+  const max = parseInt(document.getElementById('holder_max').value)||1000;
+  await chrome.storage.sync.set({holder_limit:limit, holder_max:max});
+  document.getElementById('status').textContent='已保存';
+}
+document.getElementById('save').addEventListener('click',save);
+load();
+</script>

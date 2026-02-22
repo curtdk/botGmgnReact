@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": " GMGN 标准插件",
+  "version": "1.0.0",
+  "description": "标准功能：显示/关闭面板与设置",
+  "action": { "default_title": "GMGN 标准面板" },
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "unlimitedStorage", "sidePanel"],
+  "host_permissions": ["*://gmgn.ai/*", "*://mainnet.helius-rpc.com/*"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "src/sidepanel/index.html" },
+  "content_scripts": [
+    {
+      "matches": ["*://gmgn.ai/*"],
+      "js": ["src/content/index.jsx"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["parser.js", "owner-parser.js", "env-keys.json", "chiyouzhe.html", "hook.js", "js/observer_feature.js"],
+      "matches": ["*://gmgn.ai/*"]
+    }
+  ],
+  "options_page": "options.html"
+}

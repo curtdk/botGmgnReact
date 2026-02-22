@@ -1,0 +1,8 @@
+getTokenAccounts 持有者
+getSignaturesForAddress 拉 tx history
+
+Helius 有 getTransactionsForAddress（独家 RPC 方法），可以排序为 oldest first（最早交易优先），轻松找到第一笔 tx
+
+之后 ，由于 通过 api 这些 数据都会滞后 几秒。 我想要做的是 通过 不断获取 gmgn 页面上面的 活动交易 信息 和 持有者 信息 进行和前面的进行数据整合，进入 meme 后 ，先通过 api 获取 全部信息 ，然后再根据
+gmgn 页面抓取 活动持有者 信息 接入 获取的信息 后面 持续 抓取 gmgn 信息 更新 数据 。 我最后需要的重要数据就是 用户净流入 合计信息。账户的资金来源 可以先通过 gmgn 持有者信息 获取 ，没有的 在通过 api 接口
+填充。

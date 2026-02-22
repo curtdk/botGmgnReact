@@ -1,0 +1,11 @@
+当前项目 /www/wwwroot/py/pumpfunbot/gmgn-extension-react 是谷歌gmgn插件， /www/wwwroot/py/pumpfunbot/gmgn-extension-react/scripts/helius_full_monitor.js  
+是我已经测试 过的获取mint 代币后 通过 ws  监听新数据同时计算我要的几个合计数据统计。 
+我的需求是：1.数据形成数据集 通过 Signature唯一值。因为当前的数据来源有1.开始的Signature获取 和ws 的监听 以及通过 gmgn 插件直接得到活动数据.
+多数据方便我快速 不重复的得到数据，并记录每个Signature 只通过一次计算 不能重复计算。我认为每个Signature 有两个状态 1.是否得到具体的数值 因为如果
+gmgn 得到了 或ws 通过日志得到了， 就不需要 接口通过Signature 在获取一次了。如果没有得到再去重新获取 这部分应该是减少到最少操作，因为费时间并耗费api。
+通过gmgn打开mint 的时候应该先得到全部的Signature ,然后等20秒 同时间通过 插件和ws得到的数据 先去填充 Signature ，
+然后一些没有得到数据的Signature 再去获得数据， 并进行倒排序计算 ，然后后面的新数据 ws 和插件获取
+应该都是可以获取所以就可以直接计算我要的 数据统计，只有遗漏的Signature 才去处理。 通过这样的组合 让我相对快速 而且主要保障以后得新
+数据拥有通过gmgn 插件获取的时间效率 去更新 我要的数据统计。
+先完善 代码满足需求，然后在切入到 插件 可以直接使用。
+  

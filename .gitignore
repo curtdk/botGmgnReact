@@ -1,0 +1,35 @@
+# 依赖包 (绝对不能上传，体积巨大)
+node_modules/
+dist/
+build/
+out/
+
+# 环境变量 (包含你的 API 密钥、私钥等敏感信息)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 日志文件
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器私有配置 (防止把你的个人喜好强加给队友)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# 系统临时文件
+.DS_Store
+Thumbs.db
+
+# 插件开发可能产生的特定文件
+*.log
+.eslintcache
