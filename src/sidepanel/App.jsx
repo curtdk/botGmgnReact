@@ -1419,10 +1419,12 @@ const App = () => {
 
                       {/* 持仓信息 */}
                       <div style={{ color: '#60a5fa', fontWeight: 'bold', marginTop: '8px', marginBottom: '4px' }}>💰 持仓信息</div>
-                      amount: {selectedItem.ui_amount || selectedItem.amount || '-'}<br/>
+                      amount: {selectedItem.ui_amount !== undefined && selectedItem.ui_amount !== null ? parseFloat(selectedItem.ui_amount).toFixed(2) : (selectedItem.amount || '-')}<br/>
                       holding_pct: {selectedItem.holding_share_pct || '-'}%<br/>
-                      buy_u: {selectedItem.total_buy_u || '-'}<br/>
-                      netflow: {selectedItem.netflow_amount || '-'}<br/>
+                      buy_u: {selectedItem.total_buy_u !== undefined && selectedItem.total_buy_u !== null ? parseFloat(selectedItem.total_buy_u).toFixed(6) : '-'} SOL<br/>
+                      sell_u: {selectedItem.total_sell_u !== undefined && selectedItem.total_sell_u !== null ? parseFloat(selectedItem.total_sell_u).toFixed(6) : '-'} SOL<br/>
+                      netflow: {selectedItem.netflow_amount !== undefined && selectedItem.netflow_amount !== null ? parseFloat(selectedItem.netflow_amount).toFixed(6) : '-'} SOL<br/>
+                      计算来源: {selectedItem.trade_sig_count !== undefined ? `${selectedItem.trade_sig_count} 笔 trade sig` : '-'}<br/>
 
                       {/* 资金来源 */}
                       <div style={{ color: '#60a5fa', fontWeight: 'bold', marginTop: '8px', marginBottom: '4px' }}>🔗 资金来源</div>

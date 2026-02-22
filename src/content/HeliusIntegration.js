@@ -780,19 +780,29 @@ class HeliusIntegration {
 
     const userInfo = this.monitor.metricsEngine.userInfo;
     const filteredUsers = this.monitor.metricsEngine.filteredUsers;
+    const traderStats = this.monitor.metricsEngine.traderStats;
+    const traderHistory = this.monitor.metricsEngine.traderHistory;
 
     // 只发送过滤后的用户（score < threshold）
-    // 使用 Object.entries() 来同时获取 key 和 value
-    // 用 key (address) 来匹配 filteredUsers Set,而不是 info.owner
-    // 这样可以正确处理 undefined 地址的情况
     const holdersData = Object.entries(userInfo)
       .filter(([address]) => filteredUsers.has(address))
-      .map(([, info]) => ({
-        ...info,
-        status: info.status || '散户',
-        score: info.score || 0,
-        score_reasons: info.score_reasons || []
-      }));
+      .map(([address, info]) => {
+        const stats = traderStats[address] || {};
+        const history = traderHistory[address] || [];
+        return {
+          ...info,
+          // 用 trade 计算结果覆盖 holder 快照值
+          ui_amount: stats.netTokenReceived !== undefined ? stats.netTokenReceived : (info.ui_amount || 0),
+          total_buy_u: stats.totalBuySol !== undefined ? stats.totalBuySol : (info.total_buy_u || 0),
+          netflow_amount: stats.netSolSpent !== undefined ? stats.netSolSpent : (info.netflow_amount || 0),
+          total_sell_u: stats.totalSellSol || 0,
+          // 计算来源的 sig 数量
+          trade_sig_count: history.length,
+          status: info.status || '散户',
+          score: info.score || 0,
+          score_reasons: info.score_reasons || []
+        };
+      });
 
     // 统计庄家和散户数量
     const whaleCount = holdersData.filter(h => h.status === '庄家').length;
