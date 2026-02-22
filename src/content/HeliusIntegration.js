@@ -475,6 +475,15 @@ class HeliusIntegration {
       this.displayMetrics(metrics);
     };
 
+    // 设置 sig 统计早期更新回调（fetchInitialSignatures 完成后立即触发）
+    this.monitor.onStatsUpdate = (stats) => {
+      chrome.runtime.sendMessage({
+        type: 'HELIUS_STATS_UPDATE',
+        stats: stats,
+        mint: this.currentMint
+      }).catch(() => {});
+    };
+
     // 设置 WebSocket 状态回调
     this.monitor.onWsStatusChange = (status) => {
       chrome.runtime.sendMessage({
@@ -794,7 +803,7 @@ class HeliusIntegration {
           // 用 trade 计算结果覆盖 holder 快照值
           ui_amount: stats.netTokenReceived !== undefined ? stats.netTokenReceived : (info.ui_amount || 0),
           total_buy_u: stats.totalBuySol !== undefined ? stats.totalBuySol : (info.total_buy_u || 0),
-          netflow_amount: stats.netSolSpent !== undefined ? stats.netSolSpent : (info.netflow_amount || 0),
+          netflow_amount: stats.netSolSpent || 0,
           total_sell_u: stats.totalSellSol || 0,
           // 计算来源的 sig 数量
           trade_sig_count: history.length,

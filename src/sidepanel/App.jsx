@@ -47,9 +47,7 @@ const COLUMN_DEFS = [
     { id: 'score', label: 'Score', width: '40px', align: 'center', defaultVisible: true }, // 新增
     { id: 'buy_u', label: '总买', flex: 1, align: 'right', defaultVisible: true },
     { id: 'netflow', label: '净流', width: '50px', align: 'right', defaultVisible: true },
-    { id: 'pct', label: '占比', width: '50px', align: 'right', defaultVisible: true },
     { id: 'amount', label: '数量', width: '60px', align: 'right', defaultVisible: true },
-    { id: 'status', label: '类', width: '30px', align: 'center', defaultVisible: true },
 ];
 
 // 优化的列表项组件 - 使用 React.memo 避免不必要的重新渲染
@@ -771,6 +769,14 @@ const App = () => {
             if (request.mint) {
                 setHeliusMint(request.mint);
             }
+        } else if (request.type === 'HELIUS_STATS_UPDATE') {
+            // sig 统计早期更新（fetchInitialSignatures 完成后立即触发）
+            if (request.stats) {
+                setHeliusStats(request.stats);
+            }
+            if (request.mint) {
+                setHeliusMint(request.mint);
+            }
         } else if (request.type === 'HELIUS_METRICS_CLEAR') {
             // [新增] 清空 Helius 指标
             console.log('[SidePanel] 清空 Helius 指标');
@@ -1017,12 +1023,41 @@ const App = () => {
       {/* Content */}
       {isOpen && (
         <>
-          {/* Status Logs */}
-          <div style={styles.statusLogs}>
-              {statusLogs.map((log, idx) => (
-                  <div key={idx} style={{ marginBottom: '2px' }}>{log}</div>
-              ))}
-          </div>
+          {/* 核心指标 */}
+          {heliusMetrics && (
+              <div style={{
+                  padding: '8px',
+                  backgroundColor: styles.colors.cardBg,
+                  borderRadius: '4px',
+                  border: `1px solid ${styles.colors.border}`,
+                  marginBottom: '8px',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '6px',
+                  fontSize: '14px'
+              }}>
+                  <div>
+                      <span style={{ color: styles.colors.textSecondary }}>已落袋: </span>
+                      <span style={{ color: heliusMetrics.yiLuDai >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                          {heliusMetrics.yiLuDai.toFixed(4)} SOL
+                      </span>
+                  </div>
+                  <div>
+                      <span style={{ color: styles.colors.textSecondary }}>本轮下注: </span>
+                      <span style={{ fontWeight: 'bold' }}>{heliusMetrics.benLunXiaZhu.toFixed(4)} SOL</span>
+                  </div>
+                  <div>
+                      <span style={{ color: styles.colors.textSecondary }}>本轮成本: </span>
+                      <span style={{ fontWeight: 'bold' }}>{heliusMetrics.benLunChengBen.toFixed(4)} SOL</span>
+                  </div>
+                  <div>
+                      <span style={{ color: styles.colors.textSecondary }}>浮盈浮亏: </span>
+                      <span style={{ color: heliusMetrics.floatingPnL >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                          {heliusMetrics.floatingPnL.toFixed(4)} SOL
+                      </span>
+                  </div>
+              </div>
+          )}
 
           {/* Custom Short Names List */}
           {customShortNames.length > 0 && (
@@ -1120,32 +1155,7 @@ const App = () => {
 
               {heliusMetrics && (
                   <>
-                      {heliusMint && (
-                          <div style={{ fontSize: '10px', color: styles.colors.textSecondary, marginBottom: '6px', wordBreak: 'break-all' }}>
-                              Mint: {heliusMint}
-                          </div>
-                      )}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11px' }}>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>已落袋: </span>
-                              <span style={{ color: heliusMetrics.yiLuDai >= 0 ? '#10b981' : '#ef4444' }}>
-                                  {heliusMetrics.yiLuDai.toFixed(2)} SOL
-                              </span>
-                          </div>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>本轮下注: </span>
-                              <span>{heliusMetrics.benLunXiaZhu.toFixed(2)} SOL</span>
-                          </div>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>本轮成本: </span>
-                              <span>{heliusMetrics.benLunChengBen.toFixed(2)} SOL</span>
-                          </div>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>浮盈浮亏: </span>
-                              <span style={{ color: heliusMetrics.floatingPnL >= 0 ? '#10b981' : '#ef4444' }}>
-                                  {heliusMetrics.floatingPnL.toFixed(2)} SOL
-                              </span>
-                          </div>
                           <div>
                               <span style={{ color: styles.colors.textSecondary }}>活跃: </span>
                               <span>{heliusMetrics.activeCount}</span>
@@ -1165,7 +1175,7 @@ const App = () => {
                                       {heliusMetrics.skippedWhaleCount > 0 && ` | 跳过庄家: ${heliusMetrics.skippedWhaleCount}`}
                                   </div>
                                   <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary, marginTop: '2px' }}>
-                                      Sig来源: 初始={heliusStats.bySources.initial} WS={heliusStats.bySources.websocket} 插件={heliusStats.bySources.plugin} 校验={heliusStats.bySources.verify || 0}
+                                      Sig来源: 初始={heliusStats.bySources.initial} WS={heliusStats.bySources.websocket} 插件={heliusStats.bySources.plugin}
                                   </div>
                                   {heliusStats.byDataSource && (
                                       <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary }}>
@@ -1532,6 +1542,13 @@ const App = () => {
                   />
                   {currentPrice > 0 && <div style={{ color: styles.colors.success, fontWeight: 'bold' }}>${currentPrice}</div>}
               </div>
+          </div>
+
+          {/* Status Logs */}
+          <div style={{ ...styles.statusLogs, maxHeight: '60px' }}>
+              {statusLogs.map((log, idx) => (
+                  <div key={idx} style={{ marginBottom: '2px' }}>{log}</div>
+              ))}
           </div>
 
           {/* Debug Info Footer */}

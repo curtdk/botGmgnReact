@@ -233,7 +233,7 @@ export default class HeliusMonitor {
   async fetchInitialSignatures() {
     console.log('[初始化] 获取 signature 列表...');
 
-    const { allSigs, newSigs } = await this.dataFetcher.fetchHistorySigs(this.mint);
+    const { allSigs } = await this.dataFetcher.fetchHistorySigs(this.mint);
 
     // 添加所有 signatures 到 SignatureManager
     allSigs.forEach(sig => {
@@ -241,6 +241,11 @@ export default class HeliusMonitor {
     });
 
     console.log(`[初始化] 添加了 ${allSigs.length} 个 signatures 到管理器`);
+
+    // 立即通知 UI sig 总数已就绪
+    if (this.onStatsUpdate) {
+      this.onStatsUpdate(this.signatureManager.getStats());
+    }
   }
 
   /**
@@ -711,7 +716,7 @@ export default class HeliusMonitor {
 
       latestSigs.forEach(sig => {
         if (!this.signatureManager.signatures.has(sig)) {
-          this.signatureManager.addSignature(sig, 'verify');
+          this.signatureManager.addSignature(sig, 'initial');  // 归入 initial，统一显示 API 获取总数
           newSigs.push(sig);
           newCount++;
         }
@@ -743,6 +748,11 @@ export default class HeliusMonitor {
       }
 
       this.lastVerifyTime = Date.now();
+
+      // 校验完成后推送最新 stats 到 UI
+      if (this.onStatsUpdate) {
+        this.onStatsUpdate(this.signatureManager.getStats());
+      }
 
     } catch (error) {
       if (this.isStopped) return;
