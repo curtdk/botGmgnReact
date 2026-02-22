@@ -770,28 +770,11 @@ export default class HeliusMonitor {
       this.metricsEngine.updateUsersInfo(holders);
       console.log('[HeliusMonitor] 步骤1完成: updateUsersInfo', { userInfoCount: Object.keys(this.metricsEngine.userInfo).length });
 
-      // 检测数据模式切换（从 trade_calculated 切换到 holder_based）
-      let modeSwitchCount = 0;
-      holders.forEach(holder => {
-        const user = this.metricsEngine.userInfo[holder.owner];
-        if (user && user.data_mode === 'holder_based' && user.has_holder_snapshot) {
-          // 检查是否之前是 trade_calculated 模式
-          const hadTradeData = this.metricsEngine.tradeCache.hasTradesForUser(holder.owner);
-          if (hadTradeData) {
-            modeSwitchCount++;
-          }
-        }
-      });
-
-      if (modeSwitchCount > 0) {
-        console.log(`[HeliusMonitor] 检测到 ${modeSwitchCount} 个用户从 trade_calculated 切换到 holder_based 模式`);
-      }
-
       dataFlowLogger.log(
         'HeliusMonitor',
         '步骤1: 更新用户信息',
-        `已更新 ${Object.keys(this.metricsEngine.userInfo).length} 个用户的基础信息${modeSwitchCount > 0 ? `，其中 ${modeSwitchCount} 个从 trade_calculated 切换到 holder_based` : ''}`,
-        { userInfoCount: Object.keys(this.metricsEngine.userInfo).length, modeSwitchCount }
+        `已更新 ${Object.keys(this.metricsEngine.userInfo).length} 个用户的基础信息`,
+        { userInfoCount: Object.keys(this.metricsEngine.userInfo).length }
       );
 
       // 2. 计算分数
@@ -892,79 +875,6 @@ export default class HeliusMonitor {
         'HeliusMonitor',
         '评分流程失败',
         `评分过程中发生错误: ${error.message}`,
-        {
-          error: error.message,
-          stack: error.stack
-        }
-      );
-    }
-  }
-
-  /**
-   * 更新 trade 数据（混合数据源策略）
-   * @param {Array} trades - trade 数据数组
-   */
-  updateTradeData(trades) {
-    try {
-      console.log('[HeliusMonitor] 更新 trade 数据', { tradeCount: trades.length });
-
-      let newTradeCount = 0;
-      let incrementalUpdateCount = 0;
-      let calculateFromTradesCount = 0;
-
-      // 处理每个交易
-      trades.forEach(trade => {
-        if (!trade || !trade.owner || !trade.signature) {
-          return;
-        }
-
-        // 添加到 TradeCache 并去重
-        const isNew = this.metricsEngine.tradeCache.addTrade(trade);
-        if (!isNew) {
-          return; // 重复交易，跳过
-        }
-
-        newTradeCount++;
-
-        const user = this.metricsEngine.userInfo[trade.owner];
-
-        if (user && user.has_holder_snapshot) {
-          // 场景1：有 Holder 快照，增量更新
-          this.metricsEngine.updateTradeIncremental(trade);
-          incrementalUpdateCount++;
-        } else {
-          // 场景2：没有 Holder 快照，从头计算
-          this.metricsEngine.calculateFromTrades(trade.owner, this.currentPrice);
-          calculateFromTradesCount++;
-        }
-      });
-
-      console.log(`[HeliusMonitor] trade 数据更新完成: 新交易 ${newTradeCount}, 增量更新 ${incrementalUpdateCount}, 从头计算 ${calculateFromTradesCount}`);
-
-      // 重新计算指标
-      if (newTradeCount > 0) {
-        this.recalculateMetrics();
-      }
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        'Trade 数据更新',
-        `处理了 ${newTradeCount} 个新交易，增量更新 ${incrementalUpdateCount} 个用户，从头计算 ${calculateFromTradesCount} 个用户`,
-        {
-          totalTrades: trades.length,
-          newTradeCount,
-          incrementalUpdateCount,
-          calculateFromTradesCount
-        }
-      );
-    } catch (error) {
-      console.error('[HeliusMonitor] updateTradeData 执行失败:', error);
-      console.error('[HeliusMonitor] 错误堆栈:', error.stack);
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        'Trade 数据更新失败',
-        `更新过程中发生错误: ${error.message}`,
         {
           error: error.message,
           stack: error.stack

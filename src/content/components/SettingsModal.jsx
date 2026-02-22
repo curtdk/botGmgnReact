@@ -11,10 +11,6 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     
     // 开关配置
     const [hookRefreshEnabled, setHookRefreshEnabled] = useState(false); // Hook 自动刷新
-    
-    // 子选项配置
-    const [modeHolderList, setModeHolderList] = useState(false);   // 持有人列表 (添加新用户)
-    const [modeBossRefresh, setModeBossRefresh] = useState(false); // 庄家刷新 (只分析状态)
 
     const [apiRefreshEnabled, setApiRefreshEnabled] = useState(false);   // API 自动刷新
     const [activityMonitorEnabled, setActivityMonitorEnabled] = useState(false); // 活动数据监听
@@ -52,7 +48,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     useEffect(() => {
         chrome.storage.local.get([
             'env_keys', 'holder_limit', 'holder_max', 'auto_update_sec', 'boss_detect_sec',
-            'hook_refresh_enabled', 'mode_holder_list', 'mode_boss_refresh',
+            'hook_refresh_enabled',
             'api_refresh_enabled', 'activity_monitor_enabled', 'activity_monitor_interval', 'observer_enabled', 'observer_interval', 'boss_rule_source_empty', 'boss_rule_activity',
             'auto_sync_remarks', // [新增]
             'trade_mode', 'pumpportal_key', 'slippage', 'priority_fee', 'pool',
@@ -65,12 +61,6 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             if(res.boss_detect_sec) setBossDetectSec(res.boss_detect_sec);
             
             if(res.hook_refresh_enabled !== undefined) setHookRefreshEnabled(res.hook_refresh_enabled);
-            
-            // 加载子选项 (默认值处理：如果是旧配置，默认开启 Holder List 以兼容)
-            if(res.mode_holder_list !== undefined) setModeHolderList(res.mode_holder_list);
-            else if(res.hook_refresh_enabled) setModeHolderList(true); // 兼容旧版：如果开启了Hook但没有mode配置，默认开启列表模式
-            
-            if(res.mode_boss_refresh !== undefined) setModeBossRefresh(res.mode_boss_refresh);
 
             if(res.api_refresh_enabled !== undefined) setApiRefreshEnabled(res.api_refresh_enabled);
             if(res.activity_monitor_enabled !== undefined) setActivityMonitorEnabled(res.activity_monitor_enabled);
@@ -119,8 +109,6 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             boss_detect_sec: parseInt(bossDetectSec),
             
             hook_refresh_enabled: hookRefreshEnabled,
-            mode_holder_list: modeHolderList,
-            mode_boss_refresh: modeBossRefresh,
 
             api_refresh_enabled: apiRefreshEnabled,
             activity_monitor_enabled: activityMonitorEnabled,
@@ -319,33 +307,13 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
                         <label style={{...labelStyle, paddingTop: '4px'}}>持有人启动</label>
                         <div style={{display:'flex', flexDirection:'column', gap:'5px', flex:1}}>
                             <label style={checkLabelStyle}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={hookRefreshEnabled} 
-                                    onChange={e => {
-                                        const checked = e.target.checked;
-                                        setHookRefreshEnabled(checked);
-                                        // 如果开启主开关且没有选任何子选项，默认选中“庄家刷新”
-                                        if (checked && !modeHolderList && !modeBossRefresh) {
-                                            setModeBossRefresh(true);
-                                        }
-                                    }}
-                                /> 
+                                <input
+                                    type="checkbox"
+                                    checked={hookRefreshEnabled}
+                                    onChange={e => setHookRefreshEnabled(e.target.checked)}
+                                />
                                 开启自动刷新
                             </label>
-                            
-                            {hookRefreshEnabled && (
-                                <div style={{display:'flex', gap:'10px', marginLeft:'20px', flexWrap:'wrap', marginTop:'4px'}}>
-                                    <label style={checkLabelStyle} title="添加新用户并更新所有信息">
-                                        <input type="checkbox" checked={modeHolderList} onChange={e=>setModeHolderList(e.target.checked)}/> 
-                                        持有人列表
-                                    </label>
-                                    <label style={checkLabelStyle} title="仅分析庄家状态，不加人">
-                                        <input type="checkbox" checked={modeBossRefresh} onChange={e=>setModeBossRefresh(e.target.checked)}/> 
-                                        庄家刷新
-                                    </label>
-                                </div>
-                            )}
                         </div>
                     </div>
                     <div className="row" style={rowStyle}>

@@ -737,24 +737,6 @@ class HeliusIntegration {
   }
 
   /**
-   * 更新 GMGN trades 数据（从 index.jsx 调用）
-   * @param {Array} trades - trade 数据数组
-   */
-  updateGmgnTrades(trades) {
-    console.log('[HeliusIntegration] 接收 GMGN trades 数据', { count: trades.length });
-
-    if (this.monitor) {
-      // 更新交易数据
-      this.monitor.updateTradeData(trades);
-
-      // 发送数据到 Sidepanel
-      this.sendDataToSidepanel();
-    } else {
-      console.warn('[HeliusIntegration] Monitor 未启动，无法处理 trade 数据');
-    }
-  }
-
-  /**
    * 处理分页获取到的 trades 数据（从 EXECUTE_TRADES_REFRESH 直接调用）
    * 复用 hookFetchXhrHandler 的完整逻辑：存储 signatures + 处理新交易
    * @param {Array} trades - trade 数据数组

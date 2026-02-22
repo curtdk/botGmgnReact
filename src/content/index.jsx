@@ -317,7 +317,7 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
                 });
 
                 // 3. 触发一次页面标记
-                markTradeUsers();
+                // markTradeUsers();
             }
         } catch (err) {
             console.error('[GMGN Content] Failed to parse hook data', err);

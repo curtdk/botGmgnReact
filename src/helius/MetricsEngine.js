@@ -12,12 +12,10 @@
 import LogFormatter from './LogFormatter.js';
 import BossDetector from './BossDetector.js';
 import dataFlowLogger from '../utils/Logger.js';
-import TradeCache from './TradeCache.js';
 
 export default class MetricsEngine {
   constructor() {
     this.reset();
-    this.tradeCache = new TradeCache();  // 新增：Trade 缓存管理
   }
 
   reset() {
@@ -313,22 +311,6 @@ export default class MetricsEngine {
       ...holderData
     });
 
-    // 初始化 traderStats（用于指标计算）
-    // Holder 数据是完整的，应该直接使用，即使没有 Trade 记录
-    if (!this.traderStats[owner]) {
-      this.traderStats[owner] = {
-        netSolSpent: 0,
-        netTokenReceived: uiAmount,  // 从 Holder 数据初始化
-        totalBuySol: holderData.total_buy_u || 0,
-        totalSellSol: 0
-      };
-      console.log(`[MetricsEngine] 初始化 traderStats: ${owner.slice(0, 8)}..., netTokenReceived=${uiAmount}`);
-    } else {
-      // 更新 netTokenReceived（使用 Holder 快照的准确值）
-      const oldValue = this.traderStats[owner].netTokenReceived;
-      this.traderStats[owner].netTokenReceived = uiAmount;
-      console.log(`[MetricsEngine] 更新 traderStats: ${owner.slice(0, 8)}..., netTokenReceived: ${oldValue} -> ${uiAmount}`);
-    }
   }
 
   /**
@@ -341,98 +323,6 @@ export default class MetricsEngine {
     });
 
     console.log(`[MetricsEngine] 更新了 ${holdersArray.length} 个用户信息`);
-  }
-
-  /**
-   * 从 Trade 数据计算用户持仓（用于没有 Holder 快照的场景）
-   * @param {string} address - 用户地址
-   * @param {number} currentPrice - 当前价格
-   */
-  calculateFromTrades(address, currentPrice) {
-    const trades = this.tradeCache.getAllTradesForUser(address);
-
-    if (!trades || trades.length === 0) {
-      return;
-    }
-
-    // 初始化统计数据
-    let netTokenReceived = 0;
-    let totalBuySol = 0;
-    let totalSellSol = 0;
-    let netSolSpent = 0;
-
-    // 按时间顺序计算
-    trades.forEach(trade => {
-      if (trade.event === 'buy') {
-        netTokenReceived += trade.token_amount || 0;
-        totalBuySol += trade.sol_amount || 0;
-        netSolSpent += trade.sol_amount || 0;
-      } else if (trade.event === 'sell') {
-        netTokenReceived -= trade.token_amount || 0;
-        totalSellSol += trade.sol_amount || 0;
-        netSolSpent -= trade.sol_amount || 0;
-      }
-    });
-
-    // 更新 traderStats
-    this.traderStats[address] = {
-      netSolSpent,
-      netTokenReceived,
-      totalBuySol,
-      totalSellSol
-    };
-
-    // 更新 userInfo
-    if (!this.userInfo[address]) {
-      this.userInfo[address] = {};
-    }
-
-    Object.assign(this.userInfo[address], {
-      owner: address,
-      data_source: 'Trade Calculated',  // 标识数据来源
-      ui_amount: netTokenReceived,  // 从交易计算的持仓
-      calculated_balance: netTokenReceived,  // 记录计算值
-      total_buy_u: totalBuySol,
-      // 新增：混合数据源字段
-      data_mode: 'trade_calculated',  // 数据模式：从 Trade 计算
-      has_holder_snapshot: false,  // 没有 Holder 快照
-      last_trade_update: Date.now()  // 最后 Trade 更新时间
-    });
-
-    console.log(`[MetricsEngine] 从 Trade 计算用户 ${address.slice(0, 8)}... 持仓: ${netTokenReceived.toFixed(2)}, 交易数: ${trades.length}`);
-  }
-
-  /**
-   * 增量更新 Trade 数据（用于有 Holder 快照的用户）
-   * @param {Object} trade - 交易数据
-   */
-  updateTradeIncremental(trade) {
-    const address = trade.owner;
-
-    // 确保 traderStats 已初始化
-    if (!this.traderStats[address]) {
-      console.warn(`[MetricsEngine] 用户 ${address.slice(0, 8)}... 没有 traderStats，跳过增量更新`);
-      return;
-    }
-
-    // 增量更新统计数据
-    if (trade.event === 'buy') {
-      this.traderStats[address].netTokenReceived += trade.token_amount || 0;
-      this.traderStats[address].totalBuySol += trade.sol_amount || 0;
-      this.traderStats[address].netSolSpent += trade.sol_amount || 0;
-    } else if (trade.event === 'sell') {
-      this.traderStats[address].netTokenReceived -= trade.token_amount || 0;
-      this.traderStats[address].totalSellSol += trade.sol_amount || 0;
-      this.traderStats[address].netSolSpent -= trade.sol_amount || 0;
-    }
-
-    // 更新 userInfo
-    if (this.userInfo[address]) {
-      this.userInfo[address].ui_amount = this.traderStats[address].netTokenReceived;
-      this.userInfo[address].last_trade_update = Date.now();
-    }
-
-    console.log(`[MetricsEngine] 增量更新用户 ${address.slice(0, 8)}... ${trade.event}, 持仓: ${this.traderStats[address].netTokenReceived.toFixed(2)}`);
   }
 
   /**
