@@ -1172,6 +1172,17 @@ const App = () => {
                                           详情来源: API={heliusStats.byDataSource.api} 缓存={heliusStats.byDataSource.cache} 插件={heliusStats.byDataSource.plugin} WS={heliusStats.byDataSource.websocket}
                                       </div>
                                   )}
+                                  <div style={{
+                                      gridColumn: '1 / -1',
+                                      fontSize: '9px',
+                                      marginTop: '2px',
+                                      color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b'
+                                  }}>
+                                      {heliusStats.needFetch === 0
+                                          ? `✓ Sig 已补全 (${heliusStats.total}/${heliusStats.total})`
+                                          : `⚠ Sig 未补全 (${heliusStats.hasData}/${heliusStats.total})`
+                                      }
+                                  </div>
                               </>
                           )}
                       </div>
