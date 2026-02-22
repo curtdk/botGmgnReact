@@ -930,30 +930,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         nextCursor = json.data?.next || json.next;
                     }
 
-                    // 4. 更新数据
+                    // 4. 更新数据 - 直接调用 HeliusIntegration，统一走 HeliusMonitor 数据体系
+                    let newCount = 0;
                     if (trades.length > 0) {
-                        // 只调用 HeliusIntegration,不再调用 contentManager
-                        // 更新 Helius 集成的交易和持有者数据
                         if (window.__heliusIntegration) {
-                            // [新增] 如果有新交易且系统已初始化，通知 Helius 处理
-                            if (trades.length > 0 && window.__heliusIntegration.monitor?.isInitialized) {
-                                console.log(`[GMGN Content] 通知 Helius 检查 ${trades.length} 个交易`);
-                                // 模拟 HOOK_FETCH_XHR_EVENT 的数据结构
-                                window.dispatchEvent(new CustomEvent('HOOK_FETCH_XHR_EVENT', {
-                                    detail: {
-                                        type: 'fetch',
-                                        url: currentUrl,
-                                        responseBody: JSON.stringify({
-                                            data: {
-                                                history: trades
-                                            }
-                                        })
-                                    }
-                                }));
-                            }
+                            newCount = window.__heliusIntegration.processFetchedTrades(trades) || 0;
+                        } else {
+                            console.warn('[GMGN Content] window.__heliusIntegration 不存在，trades 数据丢失');
                         }
-
-                        // 触发页面标记
                         markTradeUsers();
                     }
 

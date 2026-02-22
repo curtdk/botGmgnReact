@@ -755,6 +755,42 @@ class HeliusIntegration {
   }
 
   /**
+   * 处理分页获取到的 trades 数据（从 EXECUTE_TRADES_REFRESH 直接调用）
+   * 复用 hookFetchXhrHandler 的完整逻辑：存储 signatures + 处理新交易
+   * @param {Array} trades - trade 数据数组
+   */
+  processFetchedTrades(trades) {
+    if (!trades || trades.length === 0) return;
+
+    if (!this.monitor) {
+      console.warn('[HeliusIntegration] Monitor 未启动，无法处理 trades 数据');
+      return;
+    }
+
+    let newTradesCount = 0;
+    const newTrades = [];
+
+    trades.forEach(trade => {
+      if (trade.tx_hash) {
+        const isNew = !this.monitor.signatureManager.signatures.has(trade.tx_hash);
+        this.monitor.signatureManager.addSignature(trade.tx_hash, 'plugin', trade);
+        if (isNew) {
+          newTradesCount++;
+          newTrades.push(trade);
+        }
+      }
+    });
+
+    console.log(`[HeliusIntegration] processFetchedTrades: 总数=${trades.length}, 新交易=${newTradesCount}`);
+
+    if (this.monitor.isInitialized && newTradesCount > 0) {
+      this.processNewGmgnTrades(newTrades);
+    }
+
+    return newTradesCount;
+  }
+
+  /**
    * 发送数据给 Sidepanel UI
    */
   sendDataToSidepanel() {

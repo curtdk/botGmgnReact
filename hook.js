@@ -88,33 +88,10 @@
                     console.log('[GMGN Hook] Captured XHR:', this._url);
 
                     // 通过自定义事件发送给 content script
+                    // HOOK_FETCH_XHR_EVENT 携带完整 responseBody，HeliusIntegration 会从中提取 tx_hash
                     window.dispatchEvent(new CustomEvent('HOOK_FETCH_XHR_EVENT', {
                         detail: payload
                     }));
-
-                    // 如果是 token_trades，立即提取 tx_hash 并发送
-                    if (this._url.includes('/token_trades/')) {
-                        try {
-                            const json = JSON.parse(this.responseText);
-                            const trades = json.data?.history || json.data || [];
-                            const signatures = [];
-
-                            trades.forEach(trade => {
-                                if (trade.tx_hash) {
-                                    signatures.push(trade.tx_hash);
-                                }
-                            });
-
-                            if (signatures.length > 0) {
-                                console.log(`[GMGN Hook] 提取了 ${signatures.length} 个 tx_hash`);
-                                window.dispatchEvent(new CustomEvent('HOOK_SIGNATURES_EVENT', {
-                                    detail: { signatures, source: 'plugin' }
-                                }));
-                            }
-                        } catch (err) {
-                            console.error('[GMGN Hook] 提取 tx_hash 失败:', err);
-                        }
-                    }
                 }
             } catch (err) {
                 console.error('[GMGN Hook] Error capturing XHR:', err);
