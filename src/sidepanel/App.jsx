@@ -42,12 +42,13 @@ const mergeItems = (oldItems, newItems) => {
 
 // 列定义常量
 const COLUMN_DEFS = [
-    { id: 'rank', label: '排', width: '30px', align: 'center', defaultVisible: true },
-    { id: 'address', label: '地址', width: '40px', align: 'left', defaultVisible: true },
-    { id: 'score', label: 'Score', width: '40px', align: 'center', defaultVisible: true }, // 新增
-    { id: 'buy_u', label: '总买', flex: 1, align: 'right', defaultVisible: true },
-    { id: 'netflow', label: '净流', width: '50px', align: 'right', defaultVisible: true },
-    { id: 'amount', label: '数量', width: '60px', align: 'right', defaultVisible: true },
+    { id: 'rank',         label: '排',    width: '24px', align: 'center', defaultVisible: true },
+    { id: 'address',      label: '地址',  width: '36px', align: 'left',   defaultVisible: true },
+    { id: 'score',        label: 'Score', width: '36px', align: 'center', defaultVisible: true },
+    { id: 'net_cost',     label: '成本',  flex: 1,       align: 'right',  defaultVisible: true },
+    { id: 'total_buy',    label: '下注',  width: '44px', align: 'right',  defaultVisible: true },
+    { id: 'realized',     label: '落袋',  width: '40px', align: 'right',  defaultVisible: true },
+    { id: 'floating_pnl', label: '浮亏',  width: '46px', align: 'right',  defaultVisible: true },
 ];
 
 // 优化的列表项组件 - 使用 React.memo 避免不必要的重新渲染
@@ -58,7 +59,8 @@ const UserListItem = React.memo(({
     colWidths,
     styles,
     onSelect,
-    onStatusChange
+    onStatusChange,
+    currentPrice
 }) => {
     const handleCheckboxChange = (e) => {
         e.stopPropagation();
@@ -128,19 +130,29 @@ const UserListItem = React.memo(({
                         style.color = item.status === '庄家' ? styles.colors.boss : styles.colors.textSecondary;
                         content = item.status === '庄家' ? '庄' : '散';
                         break;
-                    case 'buy_u':
-                        content = parseInt(item.total_buy_u || 0);
+                    case 'net_cost': {
+                        const v = parseFloat(item.netflow_amount || 0);
+                        style.color = v <= 0 ? '#10b981' : '#e5e7eb';
+                        content = v.toFixed(2);
                         break;
-                    case 'netflow':
-                        const nf = parseInt(item.netflow_amount || 0);
-                        style.color = nf >= 0 ? styles.colors.success : '#ef4444';
-                        content = nf;
+                    }
+                    case 'total_buy':
+                        content = parseFloat(item.total_buy_u || 0).toFixed(2);
                         break;
+                    case 'realized':
+                        content = parseFloat(item.total_sell_u || 0).toFixed(2);
+                        break;
+                    case 'floating_pnl': {
+                        const price = currentPrice || 0;
+                        const tokenVal = parseFloat(item.ui_amount || 0) * price;
+                        const cost = parseFloat(item.netflow_amount || 0);
+                        const pnl = tokenVal - cost;
+                        style.color = pnl >= 0 ? '#10b981' : '#ef4444';
+                        content = pnl.toFixed(2);
+                        break;
+                    }
                     case 'pct':
                         content = `${parseFloat(item.holding_share_pct || 0).toFixed(2)}%`;
-                        break;
-                    case 'amount':
-                        content = parseFloat(item.ui_amount || 0).toFixed(2);
                         break;
                     default:
                         content = '-';
@@ -165,9 +177,11 @@ const UserListItem = React.memo(({
         prevProps.item.score === nextProps.item.score &&
         prevProps.item.status === nextProps.item.status &&
         prevProps.item.total_buy_u === nextProps.item.total_buy_u &&
+        prevProps.item.total_sell_u === nextProps.item.total_sell_u &&
         prevProps.item.netflow_amount === nextProps.item.netflow_amount &&
         prevProps.item.holding_share_pct === nextProps.item.holding_share_pct &&
         prevProps.item.ui_amount === nextProps.item.ui_amount &&
+        prevProps.currentPrice === nextProps.currentPrice &&
         prevProps.isSelected === nextProps.isSelected &&
         prevProps.visibleColIds.length === nextProps.visibleColIds.length &&
         prevProps.visibleColIds.every((id, i) => id === nextProps.visibleColIds[i])
@@ -1062,7 +1076,11 @@ const App = () => {
   }, [autoUpdateSec, hookRefreshEnabled, apiRefreshEnabled]);
 
   // 筛选逻辑 - 后端已经根据 Score< 过滤，前端直接显示所有数据
-  const displayItems = useMemo(() => items, [items]);
+  const displayItems = useMemo(() => {
+      return [...items].sort((a, b) =>
+          (parseFloat(b.netflow_amount) || 0) - (parseFloat(a.netflow_amount) || 0)
+      );
+  }, [items]);
 
   // 统计逻辑
   const stats = React.useMemo(() => {
@@ -1626,6 +1644,7 @@ const App = () => {
                       colWidths={colWidths}
                       styles={styles}
                       onSelect={setSelectedOwner}
+                      currentPrice={heliusMetrics?.currentPrice || currentPrice || 0}
                       onStatusChange={(owner, newStatus) => {
                           // 临时更新 UI 显示
                           const item = items.find(i => i.owner === owner);
