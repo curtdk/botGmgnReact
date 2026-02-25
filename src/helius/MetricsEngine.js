@@ -42,6 +42,9 @@ export default class MetricsEngine {
     // [新增] 过滤用户列表（score < threshold）
     this.filteredUsers = new Set();
 
+    // 实时交易列表（最新在前，最多300条）
+    this.recentTrades = [];
+
     // [新增] 防重复日志
     this.lastMetricsLog = null;
     this.lastMetricsLogTime = 0;
@@ -141,7 +144,8 @@ export default class MetricsEngine {
     const tokenChange = postToken - preToken;
 
     // 获取时间戳
-    const timestamp = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString('zh-CN') : '未知';
+    const rawTimestamp = tx.timestamp ? tx.timestamp * 1000 : Date.now();
+    const timestamp = tx.timestamp ? new Date(rawTimestamp).toLocaleString('zh-CN') : '未知';
 
     // 使用改进的日志格式
     this.currentTransactionIndex++;
@@ -161,7 +165,7 @@ export default class MetricsEngine {
     console.log(`   📍 数据来源: Helius API`);
 
     // 3. 更新交易者状态（包含交易历史记录）
-    this.updateTraderState(feePayer, solChange, tokenChange, signature, timestamp, 'Helius API');
+    this.updateTraderState(feePayer, solChange, tokenChange, signature, timestamp, 'Helius API', rawTimestamp);
 
     // 记录日志
     dataFlowLogger.log(
@@ -219,7 +223,8 @@ export default class MetricsEngine {
     const event = trade.event; // "buy" 或 "sell"
     const quoteAmount = parseFloat(trade.quote_amount); // SOL 数量
     const baseAmount = parseFloat(trade.base_amount);   // Token 数量
-    const timestamp = trade.timestamp ? new Date(trade.timestamp * 1000).toLocaleString('zh-CN') : '未知';
+    const rawTimestamp = trade.timestamp ? trade.timestamp * 1000 : Date.now();
+    const timestamp = trade.timestamp ? new Date(rawTimestamp).toLocaleString('zh-CN') : '未知';
 
     // 根据 event 类型计算 SOL 和 Token 变化
     let solChange, tokenChange;
@@ -237,7 +242,7 @@ export default class MetricsEngine {
     }
 
     // 更新交易者状态（包含交易历史）
-    this.updateTraderState(maker, solChange, tokenChange, trade.tx_hash, timestamp, 'GMGN API');
+    this.updateTraderState(maker, solChange, tokenChange, trade.tx_hash, timestamp, 'GMGN API', rawTimestamp);
 
     // 记录日志
     dataFlowLogger.log(
@@ -392,7 +397,7 @@ export default class MetricsEngine {
   /**
    * 更新交易者状态（包含交易历史记录）
    */
-  updateTraderState(user, solChange, tokenChange, signature, timestamp = '未知', source = '未知') {
+  updateTraderState(user, solChange, tokenChange, signature, timestamp = '未知', source = '未知', rawTimestamp = Date.now()) {
     const isNewUser = !this.traderStats[user];
 
     if (isNewUser) {
@@ -450,6 +455,20 @@ export default class MetricsEngine {
       tokenBalanceAfter: stats.netTokenReceived,
       netCostAfter: stats.netSolSpent
     });
+
+    // 添加到全局实时交易列表（最新在前）
+    this.recentTrades.unshift({
+      signature,
+      address: user,
+      action,
+      tokenAmount: Math.abs(tokenChange),
+      solAmount: Math.abs(solChange),
+      rawTimestamp,
+      label: this.userInfo[user]?.status || null
+    });
+    if (this.recentTrades.length > 300) {
+      this.recentTrades.length = 300;
+    }
 
     // 判断用户状态
     const isExited = stats.netTokenReceived < 1;
@@ -666,7 +685,8 @@ export default class MetricsEngine {
       activeCount,
       exitedCount,
       totalProcessed: this.processedCount,
-      skippedWhaleCount: this.skippedWhaleCount
+      skippedWhaleCount: this.skippedWhaleCount,
+      recentTrades: this.recentTrades.slice(0, 150)
     };
   }
 

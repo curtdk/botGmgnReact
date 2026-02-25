@@ -174,6 +174,107 @@ const UserListItem = React.memo(({
     );
 });
 
+// 实时交易列表组件
+function RecentTradesList({ trades }) {
+    if (!trades || trades.length === 0) return null;
+
+    const timeAgo = (ts) => {
+        const diff = Math.floor((Date.now() - ts) / 1000);
+        if (diff < 60) return `${diff}s`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+        return `${Math.floor(diff / 86400)}d`;
+    };
+
+    const fmtToken = (v) => {
+        if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+        if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+        if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+        return v.toFixed(0);
+    };
+
+    const fmtSol = (v) => {
+        if (v >= 100) return v.toFixed(0);
+        if (v >= 10) return v.toFixed(1);
+        return v.toFixed(2);
+    };
+
+    const shortAddr = (addr) => addr ? addr.slice(0, 4) : '----';
+
+    const colStyle = (width, align = 'right') => ({
+        width,
+        flexShrink: 0,
+        textAlign: align,
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+    });
+
+    return (
+        <div style={{ borderBottom: '1px solid #1f2937', marginBottom: '2px' }}>
+            {/* 标题栏 */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 6px',
+                backgroundColor: '#0d1117',
+                borderBottom: '1px solid #1f2937',
+            }}>
+                <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 'bold' }}>实时交易</span>
+                <span style={{
+                    fontSize: '10px',
+                    color: '#6b7280',
+                    backgroundColor: '#1f2937',
+                    borderRadius: '8px',
+                    padding: '0 5px',
+                    lineHeight: '16px',
+                }}>{trades.length}</span>
+            </div>
+            {/* 表头 */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '2px 6px',
+                fontSize: '10px',
+                color: '#4b5563',
+                backgroundColor: '#0d1117',
+                borderBottom: '1px solid #111827',
+                userSelect: 'none',
+            }}>
+                <span style={colStyle('30px', 'left')}>时间</span>
+                <span style={colStyle('36px', 'left')}>类型</span>
+                <span style={colStyle('56px')}>数量</span>
+                <span style={colStyle('44px')}>金额</span>
+                <span style={colStyle('36px')}>交易者</span>
+                <span style={{ flex: 1, textAlign: 'right' }}>标签</span>
+            </div>
+            {/* 交易行 */}
+            <div style={{ maxHeight: '200px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
+                {trades.map((t, i) => {
+                    const isBuy = t.action === '买入';
+                    return (
+                        <div key={t.signature + i} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '2px 6px',
+                            fontSize: '11px',
+                            color: '#d1d5db',
+                            borderBottom: '1px solid #111827',
+                        }}>
+                            <span style={{ ...colStyle('30px', 'left'), color: '#6b7280' }}>{timeAgo(t.rawTimestamp)}</span>
+                            <span style={{ ...colStyle('36px', 'left'), color: isBuy ? '#22c55e' : '#ef4444', fontWeight: 500 }}>{t.action}</span>
+                            <span style={colStyle('56px')}>{fmtToken(t.tokenAmount)}</span>
+                            <span style={{ ...colStyle('44px'), color: '#e5e7eb' }}>{fmtSol(t.solAmount)}</span>
+                            <span style={{ ...colStyle('36px'), color: '#60a5fa', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
+                            <span style={{ flex: 1, textAlign: 'right', color: '#6b7280' }}>{t.label || '散户'}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 const App = () => {
   // Theme State
   const [themeMode, setThemeMode] = useState('dark');
@@ -245,6 +346,7 @@ const App = () => {
   const [heliusMetrics, setHeliusMetrics] = useState(null);
   const [heliusStats, setHeliusStats] = useState(null);
   const [heliusMint, setHeliusMint] = useState(null);
+  const [recentTrades, setRecentTrades] = useState([]);
   const [heliusMonitorEnabled, setHeliusMonitorEnabled] = useState(false); // Helius 监控开关
   const [heliusWsStatus, setHeliusWsStatus] = useState({
     connected: false,
@@ -794,6 +896,9 @@ const App = () => {
             // [新增] 接收 Helius 指标更新
             if (request.metrics) {
                 setHeliusMetrics(request.metrics);
+                if (request.metrics.recentTrades) {
+                    setRecentTrades(request.metrics.recentTrades);
+                }
             }
             if (request.stats) {
                 setHeliusStats(request.stats);
@@ -815,6 +920,7 @@ const App = () => {
             setHeliusMetrics(null);
             setHeliusStats(null);
             setHeliusMint(null);
+            setRecentTrades([]);
         } else if (request.type === 'HELIUS_WS_STATUS') {
             // [新增] 接收 WebSocket 状态更新
             if (request.status) {
@@ -1471,6 +1577,9 @@ const App = () => {
                   )}
               </div>
           </div>
+
+          {/* 实时交易列表 */}
+          <RecentTradesList trades={recentTrades} />
 
           {/* List Header */}
           <div style={styles.listHeader}>
