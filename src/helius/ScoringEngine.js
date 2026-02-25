@@ -63,7 +63,7 @@ export default class ScoringEngine {
 
     for (const [address, user] of Object.entries(userInfo)) {
       // 基础分数（来自 BossLogic 规则）
-      const { score, isBoss, reasons } = BossLogic.calculateUserScore(
+      const { score, reasons } = BossLogic.calculateUserScore(
         user, stats, config
       );
 

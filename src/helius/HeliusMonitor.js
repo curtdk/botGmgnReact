@@ -826,7 +826,7 @@ export default class HeliusMonitor {
         { userInfoCount: Object.keys(this.metricsEngine.userInfo).length }
       );
 
-      // 步骤1.5: 隐藏中转检测
+      // 步骤1.5b: 隐藏中转检测
       if (this.bossConfig.enable_hidden_relay) {
         await this.detectHiddenRelays();
       }
@@ -1236,5 +1236,6 @@ export default class HeliusMonitor {
       this._relayDetecting = false;
     }
   }
+
 }
 

@@ -276,7 +276,10 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
 
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px', paddingTop: '10px', borderTop: '1px solid #374151' }}>
+                {/* 庄家档案库管理 */}
+                <BossProfileManager />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #374151' }}>
                     <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #4b5563', color: '#e5e7eb', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>取消</button>
                     <button onClick={handleSave} style={{ background: '#f59e0b', border: 'none', color: '#000', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>保存配置</button>
                 </div>
@@ -312,5 +315,81 @@ const Card = ({ children, title, checked, onCheck, weight, onWeightChange }) => 
         </div>
     </div>
 );
+
+const btnStyle = (bg) => ({ background: bg, border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' });
+
+const BossProfileManager = () => {
+    const [count, setCount] = useState(0);
+
+    const loadCount = () => {
+        chrome.storage.local.get(null, (all) => {
+            const keys = Object.keys(all).filter(k => k.startsWith('hidden_relay_'));
+            setCount(keys.length);
+        });
+    };
+
+    useEffect(() => { loadCount(); }, []);
+
+    const handleExport = () => {
+        chrome.storage.local.get(null, (all) => {
+            const data = {};
+            Object.keys(all).filter(k => k.startsWith('hidden_relay_')).forEach(k => { data[k] = all[k]; });
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hidden_relay_cache_${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    };
+
+    const handleImport = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const imported = JSON.parse(ev.target.result);
+                    const toSet = {};
+                    Object.keys(imported).filter(k => k.startsWith('hidden_relay_')).forEach(k => { toSet[k] = imported[k]; });
+                    chrome.storage.local.set(toSet, () => {
+                        loadCount();
+                        alert(`导入成功：共 ${Object.keys(toSet).length} 条缓存`);
+                    });
+                } catch (err) {
+                    alert('导入失败：JSON 格式错误');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    };
+
+    const handleClear = () => {
+        if (!window.confirm(`确认清空全部 ${count} 条隐藏中转缓存？此操作不可恢复`)) return;
+        chrome.storage.local.get(null, (all) => {
+            const keys = Object.keys(all).filter(k => k.startsWith('hidden_relay_'));
+            chrome.storage.local.remove(keys, () => setCount(0));
+        });
+    };
+
+    return (
+        <div style={{ borderTop: '1px solid #374151', paddingTop: '10px', marginTop: '10px' }}>
+            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>
+                隐藏中转缓存：<span style={{ color: '#f59e0b' }}>{count}</span> 条记录
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+                <button onClick={handleExport} style={btnStyle('#1d4ed8')}>导出</button>
+                <button onClick={handleImport} style={btnStyle('#065f46')}>导入</button>
+                <button onClick={handleClear} style={btnStyle('#7f1d1d')}>清空</button>
+            </div>
+        </div>
+    );
+};
 
 export default BossSettingsModal;

@@ -9,20 +9,18 @@ export default class BossLogic {
      * @param {Object} user - 用户对象
      * @param {Object} stats - 全局统计信息 { fundingGroups, timeGroups, amountBuckets, balanceBuckets, totalHolders, timeClusteredUsers }
      * @param {Object} config - 判定配置对象 (bossConfig)
-     * @returns {Object} { score, isBoss, reasons }
+     * @returns {Object} { score, reasons }
      */
     static calculateUserScore(user, stats, config) {
         let score = 0;
-        let isBoss = false;
         const reasons = [];
 
-        if (!config) return { score, isBoss, reasons };
+        if (!config) return { score, reasons };
 
         // 1. 无资金来源 (Funding Account 为空)
         if (config.enable_no_source && !user.funding_account) {
             score += (config.weight_no_source || 10);
             reasons.push('无来源(+' + (config.weight_no_source || 10) + ')');
-            isBoss = true;
         }
 
         // 2. 同源账户 (Funding Account 相同)
@@ -33,7 +31,6 @@ export default class BossLogic {
             if (group && group.length >= (config.same_source_n || 5) && !excludeSet.has(user.funding_account)) {
                 score += (config.weight_same_source || 10);
                 reasons.push(`同源(${group.length})(+${config.weight_same_source || 10})`);
-                isBoss = true;
             }
         }
 
@@ -42,7 +39,6 @@ export default class BossLogic {
             if (stats.timeClusteredUsers && stats.timeClusteredUsers.has(user.owner)) {
                 score += (config.weight_time_cluster || 10);
                 reasons.push('时间聚集(+' + (config.weight_time_cluster || 10) + ')');
-                isBoss = true;
             }
         }
 
@@ -52,7 +48,6 @@ export default class BossLogic {
             if (user.max_gas_fee > 0 && user.max_gas_fee < (config.rule_gas.threshold || 0.01)) {
                 score += (config.rule_gas.weight || 10);
                 reasons.push(`LowGas(${user.max_gas_fee.toFixed(6)})(+${config.rule_gas.weight || 10})`);
-                isBoss = true;
             }
         }
 
@@ -69,7 +64,6 @@ export default class BossLogic {
                 if (count >= (config.rule_amount_sim.count || 5)) {
                     score += (config.rule_amount_sim.weight || 10);
                     reasons.push(`金额相似(${count})(+${config.rule_amount_sim.weight || 10})`);
-                    isBoss = true;
                 }
             }
         }
@@ -87,7 +81,6 @@ export default class BossLogic {
             if (match) {
                 score += (rule.weight || 10);
                 reasons.push('大额持仓(+' + (rule.weight || 10) + ')');
-                isBoss = true;
             }
         }
 
@@ -105,12 +98,11 @@ export default class BossLogic {
                 if (count >= (rule.count || 3)) {
                     score += (rule.weight || 10);
                     reasons.push(`余额相似(${count})(+${rule.weight || 10})`);
-                    isBoss = true;
                 }
             }
         }
 
-        // [新增] 8. 资金来源时间聚类
+        // 8. 资金来源时间聚类
         if (config.rule_source_time && config.rule_source_time.enabled) {
             const clusterSet = stats.sourceTimeClusteredUsers ? stats.sourceTimeClusteredUsers.get(user.owner) : null;
             const threshold = config.rule_source_time.count || 2;
@@ -118,22 +110,13 @@ export default class BossLogic {
             if (clusterSet && clusterSet.size >= threshold) {
                 score += (config.rule_source_time.weight || 10);
 
-                // 格式化理由：显示关联用户的前3个短地址
-                // 获取当前用户的短地址函数在 ContentScoreManager 中，这里我们只能获取原始地址
-                // 为了显示友好，我们截取前4位
                 const related = Array.from(clusterSet)
-                    .filter(addr => addr !== user.owner) // 排除自己
+                    .filter(addr => addr !== user.owner)
                     .slice(0, 3)
-                    .map(addr => {
-                        // 尝试从 stats 中查找短地址（如果 stats 包含映射的话，目前 stats 没有）
-                        // 简单处理：截取前4位
-                        return addr.slice(0, 4);
-                    });
+                    .map(addr => addr.slice(0, 4));
 
-                const more = clusterSet.size - 1 > 3 ? '...' : ''; // 减去自己
+                const more = clusterSet.size - 1 > 3 ? '...' : '';
                 reasons.push(`同源时间(${clusterSet.size}): ${related.join(',')}${more}(+${config.rule_source_time.weight || 10})`);
-
-                isBoss = true;
             }
         }
 
@@ -143,9 +126,8 @@ export default class BossLogic {
             const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join('+') : '';
             score += w;
             reasons.push(`隐藏中转[${condStr}](+${w})`);
-            isBoss = true;
         }
 
-        return { score, isBoss, reasons };
+        return { score, reasons };
     }
 }

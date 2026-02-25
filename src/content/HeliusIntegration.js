@@ -145,7 +145,7 @@ class HeliusIntegration {
     window.addEventListener('HOOK_SIGNATURES_EVENT', this.hookSignaturesHandler);
 
     // 监听 GMGN holder 数据
-    this.hookHolderHandler = (event) => {
+    this.hookHolderHandler = async (event) => {
       try {
         const data = event.detail;
         if (data && data.holders && Array.isArray(data.holders)) {
@@ -192,7 +192,7 @@ class HeliusIntegration {
             { count: data.holders.length }
           );
 
-          this.monitor.updateHolderData(data.holders);
+          await this.monitor.updateHolderData(data.holders);
 
           // 发送数据到 Sidepanel
           this.sendDataToSidepanel();
@@ -718,7 +718,7 @@ class HeliusIntegration {
    * 更新 GMGN 持有者列表（从 index.jsx 调用）
    * @param {Array} holders - 持有者对象数组
    */
-  updateGmgnHolders(holders) {
+  async updateGmgnHolders(holders) {
     console.log('[HeliusIntegration] 接收 GMGN holders 数据', { count: holders.length });
 
     // [调试] 打印第一个 holder 的字段结构
@@ -750,7 +750,7 @@ class HeliusIntegration {
       this.monitor.setManualScores(this.manualStatusMap);
 
       // 更新数据并触发评分
-      this.monitor.updateHolderData(holders);
+      await this.monitor.updateHolderData(holders);
 
       // 发送数据到 Sidepanel
       this.sendDataToSidepanel();
