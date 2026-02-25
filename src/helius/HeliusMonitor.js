@@ -1084,9 +1084,24 @@ export default class HeliusMonitor {
    * 分页翻到最旧 sig → 检测第一笔交易 → 缓存结果到 chrome.storage.local
    */
   async detectHiddenRelays() {
+    // 防止并发：同一时刻只允许一个实例运行
+    if (this._relayDetecting) {
+      console.log('[HiddenRelay] 已有检测在运行，跳过本次');
+      return;
+    }
+    this._relayDetecting = true;
+
+    try {
     const userInfo = this.metricsEngine.userInfo;
     const allUsers = Object.keys(userInfo);
-    if (allUsers.length === 0) return;
+    if (allUsers.length === 0) { this._relayDetecting = false; return; }
+
+    // 推送日志到插件日志区的辅助函数
+    const sendLog = (msg) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'LOG', message: msg }).catch(() => {});
+      } catch (e) { /* 忽略 */ }
+    };
 
     // 1. 批量读取缓存，过滤出未检测过的用户
     const cacheKeys = allUsers.map(u => `hidden_relay_${u}`);
@@ -1114,20 +1129,29 @@ export default class HeliusMonitor {
       return;
     }
 
-    console.log(`[HiddenRelay] 开始检测 ${unchecked.length} 个未缓存用户`);
+    const total = unchecked.length;
+    const cached_count = allUsers.length - total;
+    sendLog(`[中转检测] 开始: ${total}个待查 / ${cached_count}个缓存`);
+    console.log(`[HiddenRelay] 开始检测 ${total} 个未缓存用户`);
 
     // 2. 分批检测（每批2人，避免限速）
     const BATCH_SIZE = 2;
+    let relayCount = 0;
+    let doneCount = 0;
+
     for (let i = 0; i < unchecked.length; i += BATCH_SIZE) {
       const batch = unchecked.slice(i, i + BATCH_SIZE);
 
       for (const address of batch) {
+        doneCount++;
+        const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
         try {
-          console.log(`[HiddenRelay] 检测 ${address.slice(0, 8)}...`);
+          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 翻页中...`);
 
           // 分页获取最旧 sig（最多翻10页 = 10000条）
           let before = undefined;
           let lastBatch = [];
+          let pageCount = 0;
           const MAX_PAGES = 10;
 
           for (let page = 0; page < MAX_PAGES; page++) {
@@ -1135,6 +1159,7 @@ export default class HeliusMonitor {
             const sigs = await this.dataFetcher.call('getSignaturesForAddress', params);
             if (!Array.isArray(sigs) || sigs.length === 0) break;
             lastBatch = sigs;
+            pageCount++;
             if (sigs.length < 1000) break;  // 已到底
             before = sigs[sigs.length - 1].signature;
             await new Promise(r => setTimeout(r, 500));  // 避免限速
@@ -1143,11 +1168,17 @@ export default class HeliusMonitor {
           if (lastBatch.length === 0) {
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
-            chrome.storage.local.set({ [`hidden_relay_${address}`]: { isRelay: false, conditions: [], checkedAt: Date.now() } });
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+              chrome.storage.local.set({ [`hidden_relay_${address}`]: { isRelay: false, conditions: [], checkedAt: Date.now() } });
+            }
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 无sig，跳过`);
             continue;
           }
 
+          const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
           const oldestSig = lastBatch[lastBatch.length - 1].signature;
+
+          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 共${totalSigs}条sig，检测第1笔...`);
 
           // 获取最旧交易详情
           const tx = await this.dataFetcher.call('getTransaction', [
@@ -1175,12 +1206,19 @@ export default class HeliusMonitor {
             });
           }
 
-          console.log(`[HiddenRelay] ${address.slice(0, 8)}... isRelay=${isRelay} conds=[${conditions.join(',')}]`);
+          if (isRelay) {
+            relayCount++;
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} ⚠ 中转[${conditions.join('+')}]`);
+          } else {
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} - 普通`);
+          }
+          console.log(`[HiddenRelay] ${shortAddr} isRelay=${isRelay} conds=[${conditions.join(',')}]`);
 
         } catch (err) {
-          console.warn(`[HiddenRelay] 检测失败 ${address.slice(0, 8)}...:`, err.message);
+          console.warn(`[HiddenRelay] 检测失败 ${shortAddr}:`, err.message);
           userInfo[address].has_hidden_relay = false;
           userInfo[address].hidden_relay_conditions = [];
+          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 错误: ${err.message.slice(0, 30)}`);
         }
 
         await new Promise(r => setTimeout(r, 500));  // 用户间间隔
@@ -1191,7 +1229,12 @@ export default class HeliusMonitor {
       }
     }
 
+    sendLog(`[中转检测] 完成: ${relayCount}个中转 / ${total - relayCount}个普通`);
     console.log('[HiddenRelay] 检测完成');
+
+    } finally {
+      this._relayDetecting = false;
+    }
   }
 }
 
