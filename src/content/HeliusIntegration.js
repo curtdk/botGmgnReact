@@ -1104,6 +1104,8 @@ class HeliusIntegration {
     return {
       enable_no_source: true,
       weight_no_source: 10,
+      enable_hidden_relay: false,
+      weight_hidden_relay: 15,
       enable_same_source: false,
       same_source_n: 5,
       same_source_exclude: '',

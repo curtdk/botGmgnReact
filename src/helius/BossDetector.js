@@ -96,6 +96,18 @@ export default class BossDetector {
       }
     }
 
+    // 策略 4: 无资金来源-隐藏中转
+    if (config.enable_hidden_relay) {
+      Object.entries(userInfo).forEach(([address, info]) => {
+        const manualStatus = existingStatusMap[address];
+        if (manualStatus === '散户') return;
+        if (info.has_hidden_relay === true) {
+          detectedBosses.add(address);
+          statusMap[address] = '庄家';
+        }
+      });
+    }
+
     // 默认未检测到的标记为散户
     Object.keys(userInfo).forEach(address => {
       if (!statusMap[address]) {

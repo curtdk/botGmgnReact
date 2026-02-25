@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>隐藏中转检测 - 测试</title>
+<style>
+  body { font-family: monospace; background: #111; color: #e5e7eb; padding: 20px; }
+  h2 { color: #f59e0b; }
+  .section { margin-bottom: 24px; }
+  .addr-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 8px; background: #1f2937; border-radius: 4px; }
+  .addr { font-size: 12px; color: #9ca3af; flex: 1; word-break: break-all; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; white-space: nowrap; }
+  .badge.pending   { background: #374151; color: #9ca3af; }
+  .badge.loading   { background: #1d4ed8; color: #bfdbfe; }
+  .badge.relay     { background: #dc2626; color: #fecaca; }
+  .badge.clean     { background: #065f46; color: #a7f3d0; }
+  .badge.error     { background: #78350f; color: #fde68a; }
+  .conditions { font-size: 11px; color: #6ee7b7; margin-left: 4px; }
+  .detail { font-size: 11px; color: #6b7280; margin-left: 4px; }
+  button { background: #f59e0b; color: #000; border: none; padding: 8px 18px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; margin-right: 8px; }
+  button:hover { background: #d97706; }
+  #log { background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 12px; font-size: 11px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; color: #94a3b8; }
+  .sep { border: none; border-top: 1px solid #374151; margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<h2>🔍 无资金来源-隐藏中转 检测测试</h2>
+<p style="color:#9ca3af; font-size:13px;">
+  检测逻辑：取钱包最旧的 sig → 获取交易详情 → 检查是否同时含有 <code>spl-associated-token-account:create</code> 和 <code>spl-token:closeAccount</code>
+</p>
+
+<div>
+  <button onclick="runAll()">▶ 全部检测</button>
+  <button onclick="clearLog()" style="background:#374151; color:#e5e7eb;">清空日志</button>
+</div>
+
+<hr class="sep">
+
+<div class="section">
+  <div style="color:#ef4444; font-weight:bold; margin-bottom:6px;">预期：隐藏中转（应被检测到）</div>
+  <div id="relay-list"></div>
+</div>
+
+<div class="section">
+  <div style="color:#10b981; font-weight:bold; margin-bottom:6px;">预期：普通用户（不应被检测到）</div>
+  <div id="clean-list"></div>
+</div>
+
+<hr class="sep">
+<div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">详细日志：</div>
+<div id="log"></div>
+
+<script>
+const RPC_URL = 'https://mainnet.helius-rpc.com/?api-key=2304ce34-8d7d-4b15-a6cf-25722d048b45';
+
+const RELAY_ADDRS = [
+  '4KuEoZ7QxZZbwZjXfuShhBGL3Ba6qrnycdVn95BCLj21',
+  '6aQ3uS3g82iE1HFtYwFwAkKmAjWTRcQa1MGvW6TPnv5j',
+  '6jPxszNsZ45rKtG6CLgn5X2yLGYANMxf5K3yzmCFoD39',
+];
+
+const CLEAN_ADDRS = [
+  'CAcSDuVgL8g16yrpmBCRTmbjJXEsjSM1V1Nx7D4oQmfS',
+  'Ex3BcKVGbNVQjCqFySCXsfyj22oi2yL2qjEdrFeAsh45',
+  '8N4vUsBjJ2wfs11jtAUjb2fsHgtVbzVGdvKAJ3pV48Eq',
+];
+
+// --------- RPC helpers ---------
+async function rpcCall(method, params) {
+  const resp = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params })
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+  return data.result;
+}
+
+// --------- 检测核心 ---------
+function isHiddenRelayTx(tx) {
+  const instructions = tx?.transaction?.message?.instructions;
+  if (!instructions || !Array.isArray(instructions)) return { isRelay: false, conditions: [] };
+
+  const conditions = [];
+  let hasCreate = false, hasClose = false;
+
+  for (const ix of instructions) {
+    const prog = ix.program || '';
+    const pType = ix.parsed?.type || '';
+
+    if (prog === 'spl-associated-token-account') {
+      hasCreate = true;
+      conditions.push('Create');
+    }
+    if (prog === 'spl-token' && pType === 'closeAccount') {
+      hasClose = true;
+      conditions.push('CloseAccount');
+    }
+    if (prog === 'system' && pType === 'transfer') {
+      conditions.push('Transfer');
+    }
+    if (prog === 'spl-token' && pType === 'syncNative') {
+      conditions.push('SyncNative');
+    }
+  }
+
+  return { isRelay: hasCreate && hasClose, conditions };
+}
+
+async function detectAddress(address) {
+  // Step 1: 取最多1000条sig，最后一条为最旧
+  log(`[${short(address)}] Step1: getSignaturesForAddress limit=1000...`);
+  const sigs = await rpcCall('getSignaturesForAddress', [address, { limit: 1000 }]);
+
+  if (!Array.isArray(sigs) || sigs.length === 0) {
+    log(`[${short(address)}] ⚠ 无 sig 返回`);
+    return { isRelay: false, conditions: [], sigCount: 0, sig: null };
+  }
+
+  const sigCount = sigs.length;
+  const oldestSig = sigs[sigs.length - 1].signature;
+  log(`[${short(address)}] sig总数=${sigCount}，最旧sig: ${oldestSig.slice(0, 20)}...`);
+
+  // Step 2: 取该交易详情
+  log(`[${short(address)}] Step2: getTransaction...`);
+  const tx = await rpcCall('getTransaction', [
+    oldestSig,
+    { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
+  ]);
+
+  if (!tx) {
+    log(`[${short(address)}] ⚠ getTransaction 返回 null（可能已过期或不支持版本）`);
+    return { isRelay: false, conditions: [], sigCount, sig: oldestSig };
+  }
+
+  const ixList = tx?.transaction?.message?.instructions || [];
+  log(`[${short(address)}] 指令列表: ${ixList.map(ix => (ix.program || '?') + (ix.parsed?.type ? ':' + ix.parsed.type : '')).join(', ')}`);
+
+  const result = isHiddenRelayTx(tx);
+  log(`[${short(address)}] 检测结果: isRelay=${result.isRelay}, conditions=[${result.conditions.join(',')}]`);
+
+  return { ...result, sigCount, sig: oldestSig };
+}
+
+// --------- UI ---------
+function short(addr) { return addr.slice(0, 6) + '...' + addr.slice(-4); }
+
+function log(msg) {
+  const el = document.getElementById('log');
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('log').textContent = '';
+}
+
+function setBadge(id, state, conditions, detail) {
+  const el = document.getElementById('badge-' + id);
+  if (!el) return;
+  const labels = { pending: '等待', loading: '检测中...', relay: '✅ 隐藏中转', clean: '✅ 普通用户', error: '⚠ 错误' };
+  el.className = 'badge ' + state;
+  el.textContent = labels[state] || state;
+
+  const condEl = document.getElementById('cond-' + id);
+  if (condEl) condEl.textContent = conditions ? `[${conditions.join('+')}]` : '';
+
+  const detEl = document.getElementById('detail-' + id);
+  if (detEl) detEl.textContent = detail || '';
+}
+
+function buildList(containerId, addrs) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  addrs.forEach((addr, i) => {
+    const id = containerId + '-' + i;
+    const row = document.createElement('div');
+    row.className = 'addr-row';
+    row.innerHTML = `
+      <span class="addr">${addr}</span>
+      <span class="badge pending" id="badge-${id}">等待</span>
+      <span class="conditions" id="cond-${id}"></span>
+      <span class="detail" id="detail-${id}"></span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+async function runAll() {
+  clearLog();
+  buildList('relay-list', RELAY_ADDRS);
+  buildList('clean-list', CLEAN_ADDRS);
+
+  const allAddrs = [
+    ...RELAY_ADDRS.map((a, i) => ({ addr: a, id: 'relay-list-' + i })),
+    ...CLEAN_ADDRS.map((a, i) => ({ addr: a, id: 'clean-list-' + i })),
+  ];
+
+  for (const { addr, id } of allAddrs) {
+    setBadge(id, 'loading');
+    try {
+      const result = await detectAddress(addr);
+      const state = result.isRelay ? 'relay' : 'clean';
+      const detail = `sigs=${result.sigCount}`;
+      setBadge(id, state, result.conditions, detail);
+    } catch (err) {
+      log(`[${short(addr)}] ❌ 错误: ${err.message}`);
+      setBadge(id, 'error', null, err.message.slice(0, 40));
+    }
+    // 每个地址间隔 500ms 避免限速
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  log('\n=== 全部检测完成 ===');
+}
+
+// 初始化列表
+buildList('relay-list', RELAY_ADDRS);
+buildList('clean-list', CLEAN_ADDRS);
+</script>
+</body>
+</html>

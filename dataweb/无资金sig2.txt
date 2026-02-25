@@ -1,0 +1,204 @@
+Sponsored:   Reels - 1000% Bonus, No KYC, Instant Withdrawal, Max RTP - PLAY NOW!
+
+Buy
+
+Presale
+
+Play
+
+Gaming
+Overview
+Balance Changes
+Raw
+API
+
+summary
+Transfer from
+4RzUCe...k6CM74
+to
+8t2MNv...DMuVK2
+for
+26.927945208
+$2,196.88
+image
+SOL
+Signature
+4bmpi5TDqBkrZV4n59WZFEdBqLZexaFs6UGVmu137k8fnhMy2Jvh2NrnSMxeXaxHHndW12pguKjYxesyhwJkHxuy
+Inspect Tx
+Block & Timestamp
+395597655
+1 month ago
+10:01:17 Jan 24, 2026 (UTC)
+Result
+Success
+finalized (MAX confirmations)
+Signer
+4RzUCeQxCwR32QN9hr8fRyCh3QhZ2DpnHnGUkrk6CM74
+Transaction Actions
+3 Transfer(s)
+Legacy Mode
+Token Account
+
+Tx Maps
+Interact with instruction
+create
+on
+image
+Associated Token Program
+Create
+8t2MNv...DMuVK2
+with deposit of
+0.00203928
+$0.1663
+image
+SOL
+from
+4RzUCe...k6CM74
+Interact with instruction
+transfer
+on
+image
+System Program
+Transfer from
+4RzUCe...k6CM74
+to
+8t2MNv...DMuVK2
+for
+26.927945208
+$2,196.88
+image
+SOL
+Interact with instruction
+syncNative
+on
+image
+Token Program
+Wrap
+26.929984488
+$2,197.05
+image
+SOL
+to
+8t2MNv...DMuVK2
+Interact with instruction
+closeAccount
+on
+image
+Token Program
+Close Token Account
+8t2MNv...DMuVK2
+and redeem
+26.929984488
+$2,197.05
+image
+SOL
+to
+BBAYGg...sU9sxG
+Sponsored
+
+Fee
+0.000005502 SOL ($0.0004486)
+Priority Fee
+0.06502
+ SOL ($0.00004093)
+Compute Units Consumed
+27,285
+Transaction Version
+legacy
+Recent Block Hash
+
+9qUn3o1sbSSQppCooMtGjpByNtzAVmsA15PYJnjFMxeM
+Personal Label
+Sign in to add personal label
+Instruction Details
+List 
+Tree 
+
+
+Compute Units Distribution
+Total:
+27,285
+Instruction #1:
+150
+Instruction #2:
+150
+Instruction #3:
+20,777
+Instruction #4:
+150
+Instruction #5:
+3,045
+Instruction #6:
+3,013
+
+#1 - Compute Budget: SetComputeUnitPrice
+Raw
+
+
+#2 - Compute Budget: SetComputeUnitLimit
+Raw
+
+
+#3 - Associated Token Program: create
+Raw
+
+
+#4 - System Program: transfer
+Raw
+
+
+#5 - Token Program: syncNative
+Raw
+
+
+#6 - Token Program: closeAccount
+Raw
+
+
+Program Logs
+Hide details
+View Raw Data
+
+#1 Compute Budget instruction
+> Program returned success
+#2 Compute Budget instruction
+> Program returned success
+#3 Associated Token Program instruction
+> Program log: Create
+> Invoking
+image
+Token Program
+  > Program log: Instruction: GetAccountDataSize
+  > Program consumed: 1569 of 42983 compute units
+  > Program return: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA pQAAAAAAAAA=
+  > Program returned success
+> Invoking
+image
+System Program
+  > Program returned success
+> Program log: Initialize the associated token account
+> Invoking
+image
+Token Program
+  > Program log: Instruction: InitializeImmutableOwner
+  > Program log: Please upgrade to SPL Token 2022 for immutable owner support
+  > Program consumed: 1405 of 36396 compute units
+  > Program returned success
+> Invoking
+image
+Token Program
+  > Program log: Instruction: InitializeAccount3
+  > Program consumed: 3158 of 32514 compute units
+  > Program returned success
+> Program consumed: 20777 of 49850 compute units
+> Program returned success
+#4 System Program instruction
+> Program returned success
+#5 Token Program instruction
+> Program log: Instruction: SyncNative
+> Program consumed: 3045 of 28923 compute units
+> Program returned success
+#6 Token Program instruction
+> Program log: Instruction: CloseAccount
+> Program consumed: 3013 of 25878 compute units
+> Program returned success

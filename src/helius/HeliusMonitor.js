@@ -803,7 +803,7 @@ export default class HeliusMonitor {
    * 更新 holder 数据并执行评分
    * @param {Array} holders - holder 数据
    */
-  updateHolderData(holders) {
+  async updateHolderData(holders) {
     try {
       console.log('[HeliusMonitor] 更新 holder 数据并执行评分', { holderCount: holders.length });
 
@@ -825,6 +825,11 @@ export default class HeliusMonitor {
         `已更新 ${Object.keys(this.metricsEngine.userInfo).length} 个用户的基础信息`,
         { userInfoCount: Object.keys(this.metricsEngine.userInfo).length }
       );
+
+      // 步骤1.5: 隐藏中转检测
+      if (this.bossConfig.enable_hidden_relay) {
+        await this.detectHiddenRelays();
+      }
 
       // 2. 计算分数
       console.log('[HeliusMonitor] 步骤2开始: calculateScores', {
@@ -1039,6 +1044,154 @@ export default class HeliusMonitor {
     this.bossConfig = config;
     // 触发重新评分（需要重新获取 holder 数据）
     // 这里暂时只更新配置，实际重新评分由 HeliusIntegration 触发
+  }
+
+  /**
+   * 检测单笔交易是否为隐藏中转模式
+   * 最小条件: spl-associated-token-account:create + spl-token:closeAccount 同时出现
+   */
+  isHiddenRelayTx(tx) {
+    const instructions = tx?.transaction?.message?.instructions;
+    if (!instructions || !Array.isArray(instructions)) return { isRelay: false, conditions: [] };
+
+    const conditions = [];
+    let hasCreate = false, hasClose = false;
+
+    for (const ix of instructions) {
+      const prog = ix.program || '';
+      const pType = ix.parsed?.type || '';
+      if (prog === 'spl-associated-token-account') {
+        hasCreate = true;
+        conditions.push('Create');
+      }
+      if (prog === 'spl-token' && pType === 'closeAccount') {
+        hasClose = true;
+        conditions.push('CloseAccount');
+      }
+      if (prog === 'system' && pType === 'transfer') {
+        conditions.push('Transfer');
+      }
+      if (prog === 'spl-token' && pType === 'syncNative') {
+        conditions.push('SyncNative');
+      }
+    }
+
+    return { isRelay: hasCreate && hasClose, conditions };
+  }
+
+  /**
+   * 批量检测隐藏中转资金来源
+   * 分页翻到最旧 sig → 检测第一笔交易 → 缓存结果到 chrome.storage.local
+   */
+  async detectHiddenRelays() {
+    const userInfo = this.metricsEngine.userInfo;
+    const allUsers = Object.keys(userInfo);
+    if (allUsers.length === 0) return;
+
+    // 1. 批量读取缓存，过滤出未检测过的用户
+    const cacheKeys = allUsers.map(u => `hidden_relay_${u}`);
+    const cached = await new Promise(resolve => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get(cacheKeys, resolve);
+      } else {
+        resolve({});
+      }
+    });
+
+    const unchecked = allUsers.filter(u => cached[`hidden_relay_${u}`] === undefined);
+
+    // 从缓存中恢复已有结果
+    for (const u of allUsers) {
+      const c = cached[`hidden_relay_${u}`];
+      if (c !== undefined) {
+        userInfo[u].has_hidden_relay = c.isRelay;
+        userInfo[u].hidden_relay_conditions = c.conditions;
+      }
+    }
+
+    if (unchecked.length === 0) {
+      console.log('[HiddenRelay] 全部命中缓存，跳过检测');
+      return;
+    }
+
+    console.log(`[HiddenRelay] 开始检测 ${unchecked.length} 个未缓存用户`);
+
+    // 2. 分批检测（每批2人，避免限速）
+    const BATCH_SIZE = 2;
+    for (let i = 0; i < unchecked.length; i += BATCH_SIZE) {
+      const batch = unchecked.slice(i, i + BATCH_SIZE);
+
+      for (const address of batch) {
+        try {
+          console.log(`[HiddenRelay] 检测 ${address.slice(0, 8)}...`);
+
+          // 分页获取最旧 sig（最多翻10页 = 10000条）
+          let before = undefined;
+          let lastBatch = [];
+          const MAX_PAGES = 10;
+
+          for (let page = 0; page < MAX_PAGES; page++) {
+            const params = [address, { limit: 1000, ...(before ? { before } : {}) }];
+            const sigs = await this.dataFetcher.call('getSignaturesForAddress', params);
+            if (!Array.isArray(sigs) || sigs.length === 0) break;
+            lastBatch = sigs;
+            if (sigs.length < 1000) break;  // 已到底
+            before = sigs[sigs.length - 1].signature;
+            await new Promise(r => setTimeout(r, 500));  // 避免限速
+          }
+
+          if (lastBatch.length === 0) {
+            userInfo[address].has_hidden_relay = false;
+            userInfo[address].hidden_relay_conditions = [];
+            chrome.storage.local.set({ [`hidden_relay_${address}`]: { isRelay: false, conditions: [], checkedAt: Date.now() } });
+            continue;
+          }
+
+          const oldestSig = lastBatch[lastBatch.length - 1].signature;
+
+          // 获取最旧交易详情
+          const tx = await this.dataFetcher.call('getTransaction', [
+            oldestSig,
+            { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
+          ]);
+
+          let isRelay = false;
+          let conditions = [];
+
+          if (tx) {
+            const result = this.isHiddenRelayTx(tx);
+            isRelay = result.isRelay;
+            conditions = result.conditions;
+          }
+
+          // 写入 userInfo
+          userInfo[address].has_hidden_relay = isRelay;
+          userInfo[address].hidden_relay_conditions = conditions;
+
+          // 持久化缓存
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.set({
+              [`hidden_relay_${address}`]: { isRelay, conditions, checkedAt: Date.now() }
+            });
+          }
+
+          console.log(`[HiddenRelay] ${address.slice(0, 8)}... isRelay=${isRelay} conds=[${conditions.join(',')}]`);
+
+        } catch (err) {
+          console.warn(`[HiddenRelay] 检测失败 ${address.slice(0, 8)}...:`, err.message);
+          userInfo[address].has_hidden_relay = false;
+          userInfo[address].hidden_relay_conditions = [];
+        }
+
+        await new Promise(r => setTimeout(r, 500));  // 用户间间隔
+      }
+
+      if (i + BATCH_SIZE < unchecked.length) {
+        await new Promise(r => setTimeout(r, 800));  // 批次间间隔
+      }
+    }
+
+    console.log('[HiddenRelay] 检测完成');
   }
 }
 

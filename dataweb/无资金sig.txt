@@ -1,0 +1,150 @@
+Signature
+4YgygpAxsc5SN2MrFdJZJYzqsgLLUaJRn3scQVPw5BT9D58uC9sCpn2Mocj1HgJXQE7Br9ueAGDuWQmgcUquhoSe
+Inspect Tx
+Block & Timestamp
+388403646
+2 months ago
+12:07:52 Dec 22, 2025 (UTC)
+Result
+Success
+finalized (MAX confirmations)
+Signer
+14PFQHdxEJRsoeAm8n7j5M9xJUudzTy9Uv5aRBG8QWJW
+4KuEoZ7QxZZbwZjXfuShhBGL3Ba6qrnycdVn95BCLj21
+Transaction Actions
+3 Transfer(s)
+Legacy Mode
+Token Account
+
+Tx Maps
+Interact with instruction
+create
+on
+image
+Associated Token Program
+Create
+Euvf58...J3SqRg
+with deposit of
+0.00203928
+$0.1663
+image
+SOL
+from
+14PFQH...G8QWJW
+Interact with instruction
+transfer
+on
+image
+System Program
+Transfer from
+14PFQH...G8QWJW
+to
+Euvf58...J3SqRg
+for
+4.91793654
+$401.22
+image
+SOL
+Interact with instruction
+closeAccount
+on
+image
+Token Program
+Close Token Account
+Euvf58...J3SqRg
+and redeem
+4.91997582
+$401.39
+image
+SOL
+to
+4KuEoZ...BCLj21
+Sponsored
+
+Fee
+0.00001406 SOL ($0.001146)
+Priority Fee
+0.00000406 SOL ($0.000331)
+Compute Units Consumed
+25,589
+Transaction Version
+legacy
+Recent Block Hash
+
+DzofHG3LnUQ7V6xuVZx8acZNmEDsYdARG3XaSsiUSH6K
+Personal Label
+Sign in to add personal label
+Instruction Details
+List 
+Tree 
+
+
+Compute Units Distribution
+Total:
+25,589
+Instruction #1:
+150
+Instruction #2:
+22,374
+Instruction #3:
+150
+Instruction #4:
+2,915
+
+#1 - Compute Budget: SetComputeUnitPrice
+Raw
+
+
+#2 - Associated Token Program: create
+Raw
+
+
+#3 - System Program: transfer
+Raw
+
+
+#4 - Token Program: closeAccount
+Raw
+
+
+Program Logs
+Hide details
+View Raw Data
+
+#1 Compute Budget instruction
+> Program returned success
+#2 Associated Token Program instruction
+> Program log: Create
+> Invoking
+image
+Token Program
+  > Program log: Instruction: GetAccountDataSize
+  > Program consumed: 1569 of 397407 compute units
+  > Program return: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA pQAAAAAAAAA=
+  > Program returned success
+> Invoking
+image
+System Program
+  > Program returned success
+> Program log: Initialize the associated token account
+> Invoking
+image
+Token Program
+  > Program log: Instruction: InitializeImmutableOwner
+  > Program log: Please upgrade to SPL Token 2022 for immutable owner support
+  > Program consumed: 1405 of 390820 compute units
+  > Program returned success
+> Invoking
+image
+Token Program
+  > Program log: Instruction: InitializeAccount3
+  > Program consumed: 3158 of 386938 compute units
+  > Program returned success
+> Program consumed: 22374 of 405850 compute units
+> Program returned success
+#3 System Program instruction
+> Program returned success
+#4 Token Program instruction
+> Program log: Instruction: CloseAccount
+> Program consumed: 2915 of 383326 compute units
+> Program returned success

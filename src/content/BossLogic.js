@@ -137,6 +137,15 @@ export default class BossLogic {
             }
         }
 
+        // 9. 隐藏中转资金来源
+        if (config.enable_hidden_relay && user.has_hidden_relay) {
+            const w = config.weight_hidden_relay || 15;
+            const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join('+') : '';
+            score += w;
+            reasons.push(`隐藏中转[${condStr}](+${w})`);
+            isBoss = true;
+        }
+
         return { score, isBoss, reasons };
     }
 }

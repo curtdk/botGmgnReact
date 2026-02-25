@@ -6,6 +6,8 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
         // 原有策略
         enable_no_source: true,
         weight_no_source: 10,
+        enable_hidden_relay: false,
+        weight_hidden_relay: 15,
 
         enable_same_source: false,
         same_source_n: 5,
@@ -75,6 +77,7 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
 
         // 1. 基础规则
         finalConfig.weight_no_source = processNum('无资金来源权重', config.weight_no_source, true);
+        finalConfig.weight_hidden_relay = processNum('隐藏中转权重', config.weight_hidden_relay, true);
         
         finalConfig.same_source_n = processNum('同源账户数量', config.same_source_n, true);
         finalConfig.weight_same_source = processNum('同源账户权重', config.weight_same_source, true);
@@ -155,6 +158,17 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
                         onWeightChange={v => handleChange('weight_no_source', v)}
                     >
                         标记 Funding Address 为空的账户
+                    </Card>
+
+                    {/* 1.5. 无资金来源-隐藏中转 */}
+                    <Card
+                        title="无资金来源-隐藏中转"
+                        checked={config.enable_hidden_relay}
+                        onCheck={v => handleChange('enable_hidden_relay', v)}
+                        weight={config.weight_hidden_relay}
+                        onWeightChange={v => handleChange('weight_hidden_relay', v)}
+                    >
+                        第一笔交易含 Create+CloseAccount 指令（资金隐藏中转到此钱包）
                     </Card>
 
                     {/* 2. 同源账户 */}
