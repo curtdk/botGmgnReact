@@ -151,15 +151,15 @@ export default class DataFetcher {
   async fetchHistorySigs(address) {
     console.log(`[历史] 正在获取交易签名列表 (${address})...`);
 
-    // 1. 从缓存加载
+    // 1. 从 signatures 表加载完整有序的 sig 列表（从旧到新）
     let cachedSigs = [];
     if (this.cacheManager) {
-      cachedSigs = await this.cacheManager.loadSignaturesByMint(address);
+      cachedSigs = await this.cacheManager.loadSignatureList(address);
     }
 
     let untilSig = null;
     if (cachedSigs.length > 0) {
-      // 假设 cachedSigs 按从旧到新排序
+      // cachedSigs 是从旧到新排序，最后一条是最新的
       untilSig = cachedSigs[cachedSigs.length - 1];
       console.log(`[缓存] 发现本地缓存 ${cachedSigs.length} 条签名。将增量拉取 (直到: ${untilSig.slice(0, 8)}...)`);
     }
@@ -171,29 +171,37 @@ export default class DataFetcher {
     let pageCount = 0;
 
     while (hasMore) {
-      const options = {
-        limit: 1000,
-        before: before
-      };
+      const params = [
+        address,
+        {
+          limit: 1000,
+          before: before,
+          ...(untilSig ? { until: untilSig } : {})
+        }
+      ];
 
-      if (untilSig) options.until = untilSig;
+      // 使用原始结果判断是否还有下一页，避免过滤后数量 < 1000 导致提前终止
+      const rawResult = await this.call('getSignaturesForAddress', params);
 
-      const sigs = await this.fetchSignatures(address, options);
-
-      if (!sigs || sigs.length === 0) {
+      if (!rawResult || rawResult.length === 0) {
         hasMore = false;
         break;
       }
 
-      newSigs.push(...sigs);
-      before = sigs[sigs.length - 1];
+      // 只保留成功的交易 sig（过滤失败）
+      const successSigs = rawResult.filter(s => !s.err).map(s => s.signature);
+      newSigs.push(...successSigs);
+
+      // before 游标用原始最后一条（含失败交易），确保分页不跳过任何区间
+      before = rawResult[rawResult.length - 1].signature;
       pageCount++;
 
       if (pageCount % 5 === 0) {
-        console.log(`  [增量] 已获取 ${pageCount} 页新签名...`);
+        console.log(`  [增量] 已获取 ${pageCount} 页新签名... (本页原始=${rawResult.length} 有效=${successSigs.length})`);
       }
 
-      if (sigs.length < 1000) hasMore = false;
+      // 用原始数量判断是否有下一页（过滤后数量可能因失败交易而 < 1000 但实际还有数据）
+      if (rawResult.length < 1000) hasMore = false;
     }
 
     console.log(`[历史] 增量获取新签名: ${newSigs.length} 条`);
@@ -203,6 +211,12 @@ export default class DataFetcher {
     newSigs.reverse();
 
     const allSigs = [...cachedSigs, ...newSigs];
+
+    // 4. 持久化完整 sig 列表到 signatures 表（确保下次增量拉取有完整基准）
+    if (this.cacheManager && newSigs.length > 0) {
+      await this.cacheManager.saveSignatureList(address, allSigs);
+      console.log(`[历史] 已持久化完整 sig 列表: ${allSigs.length} 条`);
+    }
 
     return { allSigs, newSigs, cachedSigs };
   }

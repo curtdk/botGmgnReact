@@ -36,6 +36,7 @@ export default class HeliusMonitor {
     this.isInitialized = false;
     this.isWaitingForGmgn = true;
     this.heliusApiEnabled = true;  // Helius API 开关
+    this.heliusFetchedTotal = 0;  // Helius API 实际获取的 sig 原始总数（含缓存）
     this.gmgnDataLoadedResolve = null;
     this.gmgnDataLoadedReject = null;  // 新增：支持 Promise 取消
 
@@ -233,7 +234,11 @@ export default class HeliusMonitor {
   async fetchInitialSignatures() {
     console.log('[初始化] 获取 signature 列表...');
 
-    const { allSigs } = await this.dataFetcher.fetchHistorySigs(this.mint);
+    const { allSigs, newSigs, cachedSigs } = await this.dataFetcher.fetchHistorySigs(this.mint);
+
+    // 记录 Helius 实际获取的 sig 原始总数（缓存 + 新增）
+    this.heliusFetchedTotal = allSigs.length;
+    console.log(`[初始化] Helius 获取总数: ${allSigs.length} (缓存=${cachedSigs.length} 新增=${newSigs.length})`);
 
     // 添加所有 signatures 到 SignatureManager
     allSigs.forEach(sig => {
@@ -244,7 +249,11 @@ export default class HeliusMonitor {
 
     // 立即通知 UI sig 总数已就绪
     if (this.onStatsUpdate) {
-      this.onStatsUpdate(this.signatureManager.getStats());
+      try {
+        this.onStatsUpdate(this.signatureManager.getStats());
+      } catch (e) {
+        console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
+      }
     }
   }
 
@@ -548,6 +557,29 @@ export default class HeliusMonitor {
       console.log('[HeliusMonitor] 重新连接 WebSocket');
       this.connectWs();
     }
+
+    // 如果启用且已初始化，检查并补全缺失的交易
+    if (enabled && this.isInitialized) {
+      const stats = this.signatureManager.getStats();
+      if (stats.needFetch > 0) {
+        console.log(`[HeliusMonitor] 检测到 ${stats.needFetch} 个缺失交易，开始补全...`);
+        this.fetchMissingTransactions()
+          .then(() => this.performInitialCalculation())
+          .then(() => {
+            if (this.onStatsUpdate) {
+              try {
+                this.onStatsUpdate(this.signatureManager.getStats());
+              } catch (e) {
+                console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
+              }
+            }
+            console.log('[HeliusMonitor] 缺失交易补全完成');
+          })
+          .catch(err => {
+            console.error('[HeliusMonitor] 补全失败:', err.message);
+          });
+      }
+    }
   }
 
   /**
@@ -642,7 +674,9 @@ export default class HeliusMonitor {
    * 获取统计信息
    */
   getStats() {
-    return this.signatureManager.getStats();
+    const stats = this.signatureManager.getStats();
+    stats.heliusFetchedTotal = this.heliusFetchedTotal;  // Helius API 实际拉取总数（含缓存）
+    return stats;
   }
 
   /**
@@ -716,7 +750,7 @@ export default class HeliusMonitor {
 
       latestSigs.forEach(sig => {
         if (!this.signatureManager.signatures.has(sig)) {
-          this.signatureManager.addSignature(sig, 'initial');  // 归入 initial，统一显示 API 获取总数
+          this.signatureManager.addSignature(sig, 'verify');  // 用 verify 源，避免污染 initial 计数
           newSigs.push(sig);
           newCount++;
         }
@@ -736,10 +770,11 @@ export default class HeliusMonitor {
           if (this.isStopped) return;
 
           const sig = tx.transaction.signatures[0];
-          this.signatureManager.markAsReceived(sig, tx);
+          this.signatureManager.markHasData(sig, tx);
 
           // 立即计算
-          await this.processTransaction(tx, sig, 'verify');
+          this.metricsEngine.processTransaction({ type: 'helius', data: tx }, this.mint);
+          this.signatureManager.markProcessed(sig);
         }
 
         console.log(`[校验] ✓ 已补充 ${newCount} 个遗漏的交易`);
@@ -751,7 +786,11 @@ export default class HeliusMonitor {
 
       // 校验完成后推送最新 stats 到 UI
       if (this.onStatsUpdate) {
-        this.onStatsUpdate(this.signatureManager.getStats());
+        try {
+          this.onStatsUpdate(this.signatureManager.getStats());
+        } catch (e) {
+          console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
+        }
       }
 
     } catch (error) {

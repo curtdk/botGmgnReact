@@ -172,7 +172,65 @@ export default class CacheManager {
   }
 
   /**
-   * 按 mint 加载所有 signatures
+   * 保存 sig 列表到 signatures 表（完整有序列表，从旧到新）
+   */
+  async saveSignatureList(mint, sigs) {
+    if (!this.db) {
+      await this.init();
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['signatures'], 'readwrite');
+      const store = transaction.objectStore('signatures');
+
+      const request = store.put({
+        mint,
+        sigs,           // 完整 sig 数组（从旧到新）
+        updatedAt: Date.now()
+      });
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => {
+        console.error('[CacheManager] 保存 sig 列表失败:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 从 signatures 表加载 sig 列表（完整有序列表，从旧到新）
+   */
+  async loadSignatureList(mint) {
+    if (!this.db) {
+      await this.init();
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['signatures'], 'readonly');
+      const store = transaction.objectStore('signatures');
+
+      const request = store.get(mint);
+
+      request.onsuccess = () => {
+        const record = request.result;
+        if (record && Array.isArray(record.sigs)) {
+          console.log(`[CacheManager] 从 signatures 表加载了 ${record.sigs.length} 个 sigs (mint: ${mint})`);
+          resolve(record.sigs);
+        } else {
+          resolve([]);
+        }
+      };
+
+      request.onerror = () => {
+        console.error('[CacheManager] 加载 sig 列表失败:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 按 mint 加载所有 signatures（从 transactions 表，仅含已获取详情的 sig）
+   * @deprecated 改用 loadSignatureList，它返回完整有序的 sig 列表
    */
   async loadSignaturesByMint(mint) {
     if (!this.db) {

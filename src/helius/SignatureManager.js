@@ -23,6 +23,9 @@ export default class SignatureManager {
       verify: new Set()      // 从定期校验补充
     };
 
+    // 累计初始获取计数（跨多次 verify 叠加，不依赖 Map 遍历）
+    this.cumulativeInitialCount = 0;
+
     // 状态管理
     this.isWaiting = false;
     this.waitStartTime = null;
@@ -43,6 +46,11 @@ export default class SignatureManager {
       // 如果提供了 GMGN 数据，标记为已有数据
       const hasData = !!gmgnData;
       const txData = gmgnData ? { type: 'gmgn', data: gmgnData } : null;
+
+      // 新 sig：叠加初始计数
+      if (source === 'initial') {
+        this.cumulativeInitialCount++;
+      }
 
       this.signatures.set(sig, {
         hasData: hasData,        // 如果有 GMGN 数据，标记为 true
@@ -200,7 +208,7 @@ export default class SignatureManager {
     const bySources = { initial: 0, websocket: 0, plugin: 0, verify: 0 };
     const byDataSource = { api: 0, cache: 0, plugin: 0, websocket: 0 };
 
-    for (const [sig, entry] of this.signatures.entries()) {
+    for (const [, entry] of this.signatures.entries()) {
       total++;
       if (entry.hasData) hasData++;
       if (entry.isProcessed) isProcessed++;
@@ -233,7 +241,10 @@ export default class SignatureManager {
       needFetch: total - hasData,
       isProcessed,
       notProcessed: total - isProcessed,
-      bySources,        // Signature 来源
+      bySources: {
+        ...bySources,
+        initial: this.cumulativeInitialCount  // 使用累计计数，跨 verify 叠加
+      },
       byDataSource      // 详细信息来源
     };
   }
@@ -268,6 +279,7 @@ export default class SignatureManager {
     this.sources.websocket.clear();
     this.sources.plugin.clear();
     this.sources.verify.clear();
+    this.cumulativeInitialCount = 0;
 
     this.isWaiting = false;
     this.waitStartTime = null;

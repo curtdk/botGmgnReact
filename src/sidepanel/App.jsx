@@ -272,6 +272,12 @@ const App = () => {
   const [autoUpdateSec, setAutoUpdateSec] = useState(3);
   const [bossDetectSec, setBossDetectSec] = useState(10); // 新增状态
   const [activityMonitorEnabled, setActivityMonitorEnabled] = useState(false); // 活动监听开关
+
+  // SOL/USDT 切换状态
+  const [solUsdtPrice, setSolUsdtPrice] = useState(0);
+  const [metricsUnit, setMetricsUnit] = useState('SOL');
+  const [showPriceInput, setShowPriceInput] = useState(false);
+  const [manualPriceInput, setManualPriceInput] = useState('');
   const [activityMonitorInterval, setActivityMonitorInterval] = useState(3); // 活动监听间隔
   const [observerEnabled, setObserverEnabled] = useState(false); // 页面监听开关
   const [observerInterval, setObserverInterval] = useState(500); // 页面监听间隔
@@ -493,6 +499,35 @@ const App = () => {
               });
           }
       });
+  };
+
+  // SOL/USDT 切换：点击时获取价格，失败则弹框手动输入
+  const handleMetricsUnitToggle = async () => {
+      if (metricsUnit === 'USDT') {
+          setMetricsUnit('SOL');
+          return;
+      }
+      try {
+          const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+          const data = await res.json();
+          if (data.price) {
+              setSolUsdtPrice(parseFloat(data.price));
+              setMetricsUnit('USDT');
+          } else {
+              throw new Error('no price');
+          }
+      } catch (e) {
+          setManualPriceInput('');
+          setShowPriceInput(true);
+      }
+  };
+
+  // 格式化指标值（SOL 或 USDT）
+  const fmtMetric = (solVal) => {
+      if (metricsUnit === 'USDT' && solUsdtPrice > 0) {
+          return { value: (solVal * solUsdtPrice).toFixed(2), unit: 'USDT' };
+      }
+      return { value: solVal.toFixed(4), unit: 'SOL' };
   };
 
   /**
@@ -722,11 +757,8 @@ const App = () => {
                 // 直接更新 UI，Side Panel 变为轻量级渲染器
                 // 注意：如果还需要 WhaleScoreManager 用于其他非 UI 逻辑 (如同步状态到 storage)，可以保留
                 // 但不再调用 scoreManagerRef.current.updateData() 进行繁重计算
-                if (scoreManagerRef.current) {
-                    // scoreManagerRef.current.updateData(request.data); // 移除繁重计算
-                    setItems(prev => mergeItems(prev, request.data));
-
-                }
+                // 无论 scoreManagerRef 是否初始化，都更新 UI（避免首次打开时数据被丢弃）
+                setItems(prev => mergeItems(prev, request.data));
             }
         } else if (request.type === 'PRICE_UPDATE') {
             // 处理价格更新
@@ -1025,38 +1057,121 @@ const App = () => {
         <>
           {/* 核心指标 */}
           {heliusMetrics && (
-              <div style={{
-                  padding: '8px',
-                  backgroundColor: styles.colors.cardBg,
-                  borderRadius: '4px',
-                  border: `1px solid ${styles.colors.border}`,
-                  marginBottom: '8px',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '6px',
-                  fontSize: '14px'
-              }}>
-                  <div>
-                      <span style={{ color: styles.colors.textSecondary }}>已落袋: </span>
-                      <span style={{ color: heliusMetrics.yiLuDai >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
-                          {heliusMetrics.yiLuDai.toFixed(4)} SOL
-                      </span>
+              <>
+                  {/* 切换按钮 */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                      <button onClick={handleMetricsUnitToggle} style={{
+                          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+                          border: '1px solid #374151',
+                          backgroundColor: metricsUnit === 'USDT' ? '#1d4ed8' : '#374151',
+                          color: '#fff', cursor: 'pointer'
+                      }}>
+                          {metricsUnit === 'USDT' ? '$ USDT' : '◎ SOL'}
+                      </button>
                   </div>
-                  <div>
-                      <span style={{ color: styles.colors.textSecondary }}>本轮下注: </span>
-                      <span style={{ fontWeight: 'bold' }}>{heliusMetrics.benLunXiaZhu.toFixed(4)} SOL</span>
+                  {/* 手动输入 SOL 价格弹框 */}
+                  {showPriceInput && (
+                      <div style={{
+                          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+                      }}>
+                          <div style={{ backgroundColor: '#1f2937', borderRadius: '8px', padding: '16px', width: '220px' }}>
+                              <div style={{ color: '#fff', fontSize: '13px', marginBottom: '8px' }}>
+                                  获取价格失败，请手动输入 SOL/USDT 价格：
+                              </div>
+                              <input
+                                  type="number"
+                                  value={manualPriceInput}
+                                  onChange={e => setManualPriceInput(e.target.value)}
+                                  placeholder="例如：150.5"
+                                  style={{
+                                      width: '100%', padding: '6px', borderRadius: '4px',
+                                      border: '1px solid #374151', backgroundColor: '#111827',
+                                      color: '#fff', fontSize: '13px', boxSizing: 'border-box'
+                                  }}
+                              />
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                  <button onClick={() => {
+                                      const p = parseFloat(manualPriceInput);
+                                      if (p > 0) {
+                                          setSolUsdtPrice(p);
+                                          setMetricsUnit('USDT');
+                                          setShowPriceInput(false);
+                                      }
+                                  }} style={{
+                                      flex: 1, padding: '6px', backgroundColor: '#1d4ed8',
+                                      color: '#fff', border: 'none', borderRadius: '4px',
+                                      cursor: 'pointer', fontSize: '12px'
+                                  }}>确认</button>
+                                  <button onClick={() => setShowPriceInput(false)} style={{
+                                      flex: 1, padding: '6px', backgroundColor: '#374151',
+                                      color: '#fff', border: 'none', borderRadius: '4px',
+                                      cursor: 'pointer', fontSize: '12px'
+                                  }}>取消</button>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+                  <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: '6px',
+                      marginBottom: '8px',
+                  }}>
+                      {/* 本轮下注 - 左上，橙色，紫色背景 */}
+                      <div style={{
+                          backgroundColor: '#1e0a3c',
+                          borderRadius: '8px',
+                          padding: '8px 10px',
+                          textAlign: 'center',
+                          border: '1px solid #5b21b6'
+                      }}>
+                          <div style={{ color: '#c4b5fd', fontSize: '11px', marginBottom: '4px' }}>本轮下注</div>
+                          <div style={{ color: '#f97316', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                              {(() => { const m = fmtMetric(heliusMetrics.benLunXiaZhu); return <>{m.value}<span style={{ fontSize: '9px', color: '#c4b5fd', marginLeft: '2px' }}>{m.unit}</span></>; })()}
+                          </div>
+                      </div>
+                      {/* 本轮成本 - 右上，青色 */}
+                      <div style={{
+                          backgroundColor: '#0c1a2e',
+                          borderRadius: '8px',
+                          padding: '8px 10px',
+                          textAlign: 'center',
+                          border: '1px solid #1e3a5f'
+                      }}>
+                          <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>本轮成本</div>
+                          <div style={{ color: '#06b6d4', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                              {(() => { const m = fmtMetric(heliusMetrics.benLunChengBen); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
+                          </div>
+                      </div>
+                      {/* 已落袋 - 左下，绿色 */}
+                      <div style={{
+                          backgroundColor: '#0c1a2e',
+                          borderRadius: '8px',
+                          padding: '8px 10px',
+                          textAlign: 'center',
+                          border: '1px solid #1e3a5f'
+                      }}>
+                          <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>已落袋</div>
+                          <div style={{ color: '#10b981', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                              {(() => { const m = fmtMetric(heliusMetrics.yiLuDai); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
+                          </div>
+                      </div>
+                      {/* 浮盈浮亏 - 右下，红/绿 */}
+                      <div style={{
+                          backgroundColor: '#0c1a2e',
+                          borderRadius: '8px',
+                          padding: '8px 10px',
+                          textAlign: 'center',
+                          border: '1px solid #1e3a5f'
+                      }}>
+                          <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>浮盈浮亏</div>
+                          <div style={{ color: heliusMetrics.floatingPnL >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                              {(() => { const m = fmtMetric(heliusMetrics.floatingPnL); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
+                          </div>
+                      </div>
                   </div>
-                  <div>
-                      <span style={{ color: styles.colors.textSecondary }}>本轮成本: </span>
-                      <span style={{ fontWeight: 'bold' }}>{heliusMetrics.benLunChengBen.toFixed(4)} SOL</span>
-                  </div>
-                  <div>
-                      <span style={{ color: styles.colors.textSecondary }}>浮盈浮亏: </span>
-                      <span style={{ color: heliusMetrics.floatingPnL >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
-                          {heliusMetrics.floatingPnL.toFixed(4)} SOL
-                      </span>
-                  </div>
-              </div>
+              </>
           )}
 
           {/* Custom Short Names List */}
@@ -1092,6 +1207,15 @@ const App = () => {
               }}>
                   <div style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>
                       📊 Helius 实时指标
+                      {pageMint && (
+                          <span
+                              style={{ marginLeft: '6px', color: '#9ca3af', fontWeight: 'normal', fontFamily: 'monospace', cursor: 'pointer' }}
+                              title={pageMint}
+                              onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
+                          >
+                              {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
+                          </span>
+                      )}
                   </div>
                   <label style={{
                       display: 'flex',
@@ -1175,7 +1299,7 @@ const App = () => {
                                       {heliusMetrics.skippedWhaleCount > 0 && ` | 跳过庄家: ${heliusMetrics.skippedWhaleCount}`}
                                   </div>
                                   <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary, marginTop: '2px' }}>
-                                      Sig来源: 初始={heliusStats.bySources.initial} WS={heliusStats.bySources.websocket} 插件={heliusStats.bySources.plugin}
+                                      Helius获取: {heliusStats.heliusFetchedTotal || 0} | WS={heliusStats.bySources.websocket} 插件={heliusStats.bySources.plugin}
                                   </div>
                                   {heliusStats.byDataSource && (
                                       <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary }}>

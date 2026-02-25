@@ -477,19 +477,27 @@ class HeliusIntegration {
 
     // 设置 sig 统计早期更新回调（fetchInitialSignatures 完成后立即触发）
     this.monitor.onStatsUpdate = (stats) => {
-      chrome.runtime.sendMessage({
-        type: 'HELIUS_STATS_UPDATE',
-        stats: stats,
-        mint: this.currentMint
-      }).catch(() => {});
+      try {
+        chrome.runtime.sendMessage({
+          type: 'HELIUS_STATS_UPDATE',
+          stats: stats,
+          mint: this.currentMint
+        }).catch(() => {});
+      } catch (e) {
+        // Extension context 尚未就绪，忽略
+      }
     };
 
     // 设置 WebSocket 状态回调
     this.monitor.onWsStatusChange = (status) => {
-      chrome.runtime.sendMessage({
-        type: 'HELIUS_WS_STATUS',
-        status: status
-      }).catch(() => {});
+      try {
+        chrome.runtime.sendMessage({
+          type: 'HELIUS_WS_STATUS',
+          status: status
+        }).catch(() => {});
+      } catch (e) {
+        // Extension context 尚未就绪，忽略
+      }
     };
 
     try {
@@ -497,6 +505,12 @@ class HeliusIntegration {
       this.isInitialized = true;
       console.log('\n[Helius集成] 监控已启动！\n');
     } catch (error) {
+      // Extension context invalidated 不是真正的启动失败，monitor 仍可继续运行
+      if (error.message && error.message.includes('Extension context invalidated')) {
+        console.warn('[Helius集成] 启动时 Extension context 尚未就绪，监控继续运行');
+        this.isInitialized = true;
+        return;
+      }
       console.error('[Helius集成] 启动失败:', error);
       this.monitor = null;
       this.currentMint = null;

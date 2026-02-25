@@ -119,7 +119,11 @@ export default class MetricsEngine {
     // 1. 解析 SOL 变化（fee payer）
     const preSol = meta.preBalances[0];
     const postSol = meta.postBalances[0];
-    const solChange = (postSol - preSol) / 1e9;
+    // 还原实际 swap 金额：去掉交易 fee（preBalances/postBalances 差值包含 fee）
+    // 买入：solChange = -(swap + fee) + fee = -swap（正确的 swap 成本）
+    // 卖出：solChange = (swap - fee) + fee = +swap（正确的 swap 收益）
+    const txFee = (meta.fee || 0) / 1e9;
+    const solChange = (postSol - preSol) / 1e9 + txFee;
 
     // 2. 解析代币变化
     let preToken = 0;
@@ -492,11 +496,19 @@ export default class MetricsEngine {
     let skippedByWhale = 0;
     let processedCount = 0;
 
+    // 四个指标各自的日志行
+    const logXiaZhu = [];
+    const logChengBen = [];
+    const logYiLuDai = [];
+    const logFloating = [];
+
     Object.entries(this.traderStats).forEach(([address, stats]) => {
-      // 只处理过滤后的用户
-      if (this.filteredUsers.size > 0 && !this.filteredUsers.has(address)) {
+      // 只排除"已评分 AND 评分 >= 阈值"的用户（即不在 filteredUsers 里但在 userInfo 里）
+      // 未评分的用户（不在 userInfo 里，如历史离场者）不应被过滤，仍需纳入统计
+      const wasScored = !!this.userInfo[address];
+      if (this.filteredUsers.size > 0 && wasScored && !this.filteredUsers.has(address)) {
         skippedByFilter++;
-        return; // 跳过此用户
+        return; // 跳过已评分的高分用户（庄家/高分散户）
       }
 
       // 跳过庄家
@@ -508,23 +520,88 @@ export default class MetricsEngine {
       processedCount++;
 
       const isExited = stats.netTokenReceived < 1; // 近似为 0
+      const s = address.slice(0, 6) + '..' + address.slice(-4);
+
+      const history = this.traderHistory[address] || [];
 
       if (isExited) {
-        yiLuDai += (stats.totalSellSol - stats.totalBuySol);
+        const delta = stats.totalSellSol - stats.totalBuySol;
+        yiLuDai += delta;
         exitedCount++;
+        // 逐笔展开
+        logYiLuDai.push(`${s}:`);
+        let runBuy = 0, runSell = 0;
+        history.forEach((tx, i) => {
+          if (tx.action === '买入') {
+            runBuy += Math.abs(tx.solChange);
+            logYiLuDai.push(`  [${i+1}] 买入 -${Math.abs(tx.solChange).toFixed(4)} SOL → 累计买入=${runBuy.toFixed(4)}`);
+          } else if (tx.action === '卖出') {
+            runSell += tx.solChange;
+            logYiLuDai.push(`  [${i+1}] 卖出 +${tx.solChange.toFixed(4)} SOL → 累计卖出=${runSell.toFixed(4)}`);
+          }
+        });
+        logYiLuDai.push(`  小计: 卖出${stats.totalSellSol.toFixed(4)} - 买入${stats.totalBuySol.toFixed(4)} = ${delta >= 0 ? '+' : ''}${delta.toFixed(4)} | 全局累计=${yiLuDai.toFixed(4)}`);
       } else {
         benLunXiaZhu += stats.totalBuySol;
         currentHoldersRealized += stats.totalSellSol;
         activeCount++;
 
-        // 浮盈浮亏 = 价值 - 成本
+        // 本轮下注：逐笔买入
+        logXiaZhu.push(`${s}:`);
+        let runBuyX = 0;
+        history.forEach((tx, i) => {
+          if (tx.action === '买入') {
+            runBuyX += Math.abs(tx.solChange);
+            logXiaZhu.push(`  [${i+1}] 买入 +${Math.abs(tx.solChange).toFixed(4)} SOL → 小计=${runBuyX.toFixed(4)}`);
+          }
+        });
+        logXiaZhu.push(`  地址合计: ${stats.totalBuySol.toFixed(4)} | 全局累计=${benLunXiaZhu.toFixed(4)}`);
+
+        // 本轮成本：逐笔买入/卖出
+        logChengBen.push(`${s}:`);
+        let runNet = 0;
+        history.forEach((tx, i) => {
+          if (tx.action === '买入') {
+            runNet += Math.abs(tx.solChange);
+            logChengBen.push(`  [${i+1}] 买入 +${Math.abs(tx.solChange).toFixed(4)} → 净=${runNet.toFixed(4)}`);
+          } else if (tx.action === '卖出') {
+            runNet -= tx.solChange;
+            logChengBen.push(`  [${i+1}] 卖出 -${tx.solChange.toFixed(4)} → 净=${runNet.toFixed(4)}`);
+          }
+        });
+        logChengBen.push(`  小计: 买入${stats.totalBuySol.toFixed(4)} 卖出${stats.totalSellSol.toFixed(4)} 净=${runNet.toFixed(4)} | 全局累计=${(benLunXiaZhu - currentHoldersRealized).toFixed(4)}`);
+
+        // 浮盈浮亏
         const value = stats.netTokenReceived * this.currentPrice;
         const cost = stats.netSolSpent;
-        floatingPnL += (value - cost);
+        const fpDelta = value - cost;
+        floatingPnL += fpDelta;
+        logFloating.push(
+          `${s}: ${stats.netTokenReceived.toFixed(0)}×${this.currentPrice.toFixed(6)} - ${cost.toFixed(4)} = ${fpDelta >= 0 ? '+' : ''}${fpDelta.toFixed(4)} 累计=${floatingPnL.toFixed(4)}`
+        );
       }
     });
 
     const benLunChengBen = benLunXiaZhu - currentHoldersRealized;
+
+    // 组合四个指标的逐笔计算日志
+    const calcLog = [
+      '=== 本轮下注 ===',
+      ...logXiaZhu,
+      `合计: ${benLunXiaZhu.toFixed(4)} SOL`,
+      '',
+      '=== 本轮成本（下注 - 已卖出）===',
+      ...logChengBen,
+      `合计: ${benLunChengBen.toFixed(4)} SOL`,
+      '',
+      '=== 已落袋（已退出用户）===',
+      ...logYiLuDai,
+      `合计: ${yiLuDai.toFixed(4)} SOL`,
+      '',
+      '=== 浮盈浮亏（持有中用户）===',
+      ...logFloating,
+      `合计: ${floatingPnL.toFixed(4)} SOL`,
+    ];
 
     // [调试] 输出统计信息
     console.log(`[MetricsEngine] getMetrics 统计:`, {
@@ -569,6 +646,13 @@ export default class MetricsEngine {
           已退出用户: exitedCount
         }
       );
+      // 写入逐笔计算明细日志
+      dataFlowLogger.log(
+        '实时指标计算',
+        'METRICS_CALC',
+        calcLog.join('\n'),
+        {}
+      );
       this.lastMetricsLog = metricsLogContent;
       this.lastMetricsLogTime = now;
     }
@@ -582,7 +666,7 @@ export default class MetricsEngine {
       activeCount,
       exitedCount,
       totalProcessed: this.processedCount,
-      skippedWhaleCount: this.skippedWhaleCount  // [新增] 跳过的庄家交易数
+      skippedWhaleCount: this.skippedWhaleCount
     };
   }
 
