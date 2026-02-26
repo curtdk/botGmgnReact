@@ -815,15 +815,15 @@ export default class HeliusMonitor {
         { holderCount: holders.length }
       );
 
-      // 1. 更新 MetricsEngine 的 userInfo
+      // 1. 将 holder 快照数据合并进 traderStats（用于评分）
       this.metricsEngine.updateUsersInfo(holders);
-      console.log('[HeliusMonitor] 步骤1完成: updateUsersInfo', { userInfoCount: Object.keys(this.metricsEngine.userInfo).length });
+      console.log('[HeliusMonitor] 步骤1完成: updateUsersInfo', { traderStatsCount: Object.keys(this.metricsEngine.traderStats).length });
 
       dataFlowLogger.log(
         'HeliusMonitor',
         '步骤1: 更新用户信息',
-        `已更新 ${Object.keys(this.metricsEngine.userInfo).length} 个用户的基础信息`,
-        { userInfoCount: Object.keys(this.metricsEngine.userInfo).length }
+        `已更新 ${Object.keys(this.metricsEngine.traderStats).length} 个用户的基础信息`,
+        { traderStatsCount: Object.keys(this.metricsEngine.traderStats).length }
       );
 
       // 步骤1.5b: 隐藏中转检测
@@ -849,7 +849,7 @@ export default class HeliusMonitor {
       );
 
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
-        this.metricsEngine.userInfo,
+        this.metricsEngine.traderStats,
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
@@ -868,13 +868,13 @@ export default class HeliusMonitor {
         }
       );
 
-      // 3. 将分数存储到 userInfo
+      // 3. 将分数存储到 traderStats
       let updatedCount = 0;
       for (const [address, scoreData] of scoreMap.entries()) {
-        if (this.metricsEngine.userInfo[address]) {
-          this.metricsEngine.userInfo[address].score = scoreData.score;
-          this.metricsEngine.userInfo[address].score_reasons = scoreData.reasons;
-          this.metricsEngine.userInfo[address].status = scoreData.status;
+        if (this.metricsEngine.traderStats[address]) {
+          this.metricsEngine.traderStats[address].score = scoreData.score;
+          this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+          this.metricsEngine.traderStats[address].status = scoreData.status;
           updatedCount++;
         }
       }
@@ -882,8 +882,8 @@ export default class HeliusMonitor {
 
       dataFlowLogger.log(
         'HeliusMonitor',
-        '步骤3: 存储分数到用户信息',
-        `已将分数存储到 ${updatedCount} 个用户的 userInfo 中`,
+        '步骤3: 存储分数到 traderStats',
+        `已将分数存储到 ${updatedCount} 个用户的 traderStats 中`,
         { updatedCount }
       );
 
@@ -916,7 +916,7 @@ export default class HeliusMonitor {
         '评分流程完成',
         `评分流程全部完成，用户数据已更新`,
         {
-          totalUsers: Object.keys(this.metricsEngine.userInfo).length,
+          totalUsers: Object.keys(this.metricsEngine.traderStats).length,
           whaleCount: whaleAddresses.size,
           filteredCount: filteredUsers.size
         }
@@ -938,17 +938,23 @@ export default class HeliusMonitor {
   }
 
   /**
-   * 根据分数阈值过滤用户
+   * 根据分数阈值构建散户集合
+   * 以 traderStats 为基准：有评分的用 score 判断，无评分（纯 sig 用户）默认 score=0 视为散户
    */
   filterUsersByScore(scoreMap) {
     const filtered = new Set();
-    for (const [address, scoreData] of scoreMap.entries()) {
-      if (scoreData.score < this.scoreThreshold) {
+    const traderStats = this.metricsEngine.traderStats;
+
+    for (const address of Object.keys(traderStats)) {
+      const score = scoreMap.get(address)?.score ?? 0;
+      if (score < this.scoreThreshold) {
         filtered.add(address);
       }
     }
+
     console.log('[HeliusMonitor] 过滤用户', {
-      total: scoreMap.size,
+      traderTotal: Object.keys(traderStats).length,
+      scored: scoreMap.size,
       filtered: filtered.size,
       threshold: this.scoreThreshold
     });
@@ -975,11 +981,11 @@ export default class HeliusMonitor {
     console.log('[HeliusMonitor] 设置 Score< 阈值:', threshold);
     this.scoreThreshold = threshold;
 
-    // 重新过滤用户
-    if (this.metricsEngine.userInfo && Object.keys(this.metricsEngine.userInfo).length > 0) {
-      // 从现有的 userInfo 中重新过滤
+    // 以 traderStats 为基准重新构建散户集合
+    const traderStats = this.metricsEngine.traderStats;
+    if (Object.keys(traderStats).length > 0) {
       const filteredUsers = new Set();
-      for (const [address, user] of Object.entries(this.metricsEngine.userInfo)) {
+      for (const [address, user] of Object.entries(traderStats)) {
         if ((user.score || 0) < threshold) {
           filteredUsers.add(address);
         }
@@ -987,11 +993,10 @@ export default class HeliusMonitor {
 
       console.log('[HeliusMonitor] 重新过滤用户:', {
         threshold,
-        totalUsers: Object.keys(this.metricsEngine.userInfo).length,
+        totalTraders: Object.keys(traderStats).length,
         filteredCount: filteredUsers.size
       });
 
-      // 更新过滤后的用户列表
       this.metricsEngine.setFilteredUsers(filteredUsers);
     }
 
@@ -1092,7 +1097,7 @@ export default class HeliusMonitor {
     this._relayDetecting = true;
 
     try {
-    const userInfo = this.metricsEngine.userInfo;
+    const userInfo = this.metricsEngine.traderStats;
     const allUsers = Object.keys(userInfo);
     if (allUsers.length === 0) { this._relayDetecting = false; return; }
 

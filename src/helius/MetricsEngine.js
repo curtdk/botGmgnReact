@@ -24,9 +24,6 @@ export default class MetricsEngine {
     // 记录每个用户的完整交易历史（确保计算基于全部数据）
     this.traderHistory = {};
 
-    // [新增] 用户完整信息(类似 contentManager 的 dataMap)
-    this.userInfo = {};  // { [address]: { owner, ui_amount, holding_share_pct, status, funding_account, ... } }
-
     this.currentPrice = 0;
     this.lastProcessedSig = null;
     this.processedCount = 0;
@@ -289,37 +286,37 @@ export default class MetricsEngine {
   }
 
   /**
-   * 更新用户信息(从 GMGN holder 数据)
+   * 将 GMGN holder 数据合并进 traderStats（holder 快照用于评分辅助数据）
    * @param {Object} holderData - GMGN holder 数据
    */
   updateUserInfo(holderData) {
     const owner = holderData.owner;
 
-    if (!this.userInfo[owner]) {
-      this.userInfo[owner] = {};
+    // 确保 traderStats 中有该用户的条目（可能还未有交易记录）
+    if (!this.traderStats[owner]) {
+      this.traderStats[owner] = {
+        netSolSpent: 0, netTokenReceived: 0, totalBuySol: 0, totalSellSol: 0
+      };
+      this.traderHistory[owner] = [];
     }
 
     // [调试] 记录 Holder 数据的 ui_amount
     const uiAmount = holderData.ui_amount || holderData.amount || 0;
-    console.log(`[MetricsEngine] updateUserInfo: ${owner.slice(0, 8)}..., ui_amount=${uiAmount}, total_buy_u=${holderData.total_buy_u || 0}`);
+    console.log(`[MetricsEngine] updateUserInfo→traderStats: ${owner.slice(0, 8)}..., ui_amount=${uiAmount}, total_buy_u=${holderData.total_buy_u || 0}`);
 
-    // 合并数据
-    Object.assign(this.userInfo[owner], {
+    // 将 holder 快照数据合并进 traderStats
+    Object.assign(this.traderStats[owner], {
       owner: owner,
-      data_source: 'GMGN Holder API',  // 标识数据来源
+      data_source: 'GMGN Holder API',
       ui_amount: holderData.ui_amount || holderData.amount,
       holding_share_pct: holderData.holding_share_pct,
       total_buy_u: holderData.total_buy_u,
       funding_account: holderData.native_transfer?.from_address || null,
       first_buy_time: holderData.native_transfer?.block_timestamp || null,
-      // 新增：混合数据源字段
-      data_mode: 'holder_based',  // 数据模式：基于 Holder API
-      has_holder_snapshot: true,  // 有 Holder 快照
-      last_holder_update: Date.now(),  // 最后 Holder 更新时间
-      // 保留其他字段
+      has_holder_snapshot: true,
+      last_holder_update: Date.now(),
       ...holderData
     });
-
   }
 
   /**
@@ -368,11 +365,11 @@ export default class MetricsEngine {
    */
   detectWhales(existingStatusMap = {}) {
     console.log('[MetricsEngine] 开始庄家检测...');
-    console.log(`  - 用户总数: ${Object.keys(this.userInfo).length}`);
+    console.log(`  - 用户总数: ${Object.keys(this.traderStats).length}`);
     console.log(`  - 配置: enable_no_source=${this.bossConfig.enable_no_source}, enable_same_source=${this.bossConfig.enable_same_source}, enable_time_cluster=${this.bossConfig.enable_time_cluster}`);
 
     const result = BossDetector.detectWhales(
-      this.userInfo,
+      this.traderStats,
       this.traderStats,
       this.bossConfig,
       existingStatusMap
@@ -464,7 +461,7 @@ export default class MetricsEngine {
       tokenAmount: Math.abs(tokenChange),
       solAmount: Math.abs(solChange),
       rawTimestamp,
-      label: this.userInfo[user]?.status || null
+      label: this.traderStats[user]?.status || null
     });
     if (this.recentTrades.length > 300) {
       this.recentTrades.length = 300;
@@ -522,12 +519,10 @@ export default class MetricsEngine {
     const logFloating = [];
 
     Object.entries(this.traderStats).forEach(([address, stats]) => {
-      // 只排除"已评分 AND 评分 >= 阈值"的用户（即不在 filteredUsers 里但在 userInfo 里）
-      // 未评分的用户（不在 userInfo 里，如历史离场者）不应被过滤，仍需纳入统计
-      const wasScored = !!this.userInfo[address];
-      if (this.filteredUsers.size > 0 && wasScored && !this.filteredUsers.has(address)) {
+      // 只计算 filteredUsers（score < 阈值）中的散户，其余地址一律排除
+      if (this.filteredUsers.size > 0 && !this.filteredUsers.has(address)) {
         skippedByFilter++;
-        return; // 跳过已评分的高分用户（庄家/高分散户）
+        return;
       }
 
       // 跳过庄家

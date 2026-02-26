@@ -1323,133 +1323,67 @@ const App = () => {
               ...styles.summary,
               marginTop: '8px'
           }}>
-              <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '6px'
-              }}>
-                  <div style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>
-                      📊 Helius 实时指标
-                      {pageMint && (
-                          <span
-                              style={{ marginLeft: '6px', color: '#9ca3af', fontWeight: 'normal', fontFamily: 'monospace', cursor: 'pointer' }}
-                              title={pageMint}
-                              onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
-                          >
-                              {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
-                          </span>
-                      )}
-                  </div>
-                  <label style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      cursor: 'pointer',
-                      fontSize: '11px',
-                      color: styles.colors.textSecondary
-                  }}>
-                      <input
-                          type="checkbox"
-                          checked={heliusMonitorEnabled}
-                          onChange={e => toggleHeliusMonitor(e.target.checked)}
-                          style={{ cursor: 'pointer' }}
-                      />
-                      启用 Helius API 调用
+              {/* 行1：标题 + Mint + 启用开关 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>📊 实时指标</span>
+                  {pageMint && (
+                      <span
+                          style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '10px', cursor: 'pointer' }}
+                          title={pageMint}
+                          onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
+                      >
+                          {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
+                      </span>
+                  )}
+                  <span style={{ color: styles.colors.border }}>|</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', fontSize: '10px', color: styles.colors.textSecondary }}
+                      title="关闭后仍会接收 GMGN 数据，但不调用 Helius API">
+                      <input type="checkbox" checked={heliusMonitorEnabled} onChange={e => toggleHeliusMonitor(e.target.checked)} style={{ cursor: 'pointer', margin: 0 }} />
+                      Helius
                   </label>
-                  <div style={{ fontSize: '10px', color: styles.colors.textSecondary, marginTop: '4px' }}>
-                      关闭后仍会接收 GMGN 数据，但不调用 Helius API
-                  </div>
+                  {/* WS状态 */}
+                  {heliusMonitorEnabled && (
+                      <>
+                          <span style={{ color: styles.colors.border }}>|</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}
+                              title={heliusWsStatus.error ? `错误: ${heliusWsStatus.error}` : (heliusWsStatus.reconnectCount > 0 ? `重连 ${heliusWsStatus.reconnectCount} 次` : '')}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: heliusWsStatus.connected ? '#10b981' : '#ef4444', display: 'inline-block', flexShrink: 0 }}></span>
+                              <span style={{ color: heliusWsStatus.connected ? '#10b981' : '#ef4444' }}>WS</span>
+                          </span>
+                      </>
+                  )}
               </div>
 
-              {/* WebSocket 状态指示器 */}
-              {heliusMonitorEnabled && (
-                  <div style={{
-                      padding: '6px 8px',
-                      backgroundColor: heliusWsStatus.connected ? '#10b98120' : '#ef444420',
-                      borderRadius: '4px',
-                      marginBottom: '8px',
-                      fontSize: '11px'
-                  }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{
-                              width: '6px',
-                              height: '6px',
-                              borderRadius: '50%',
-                              backgroundColor: heliusWsStatus.connected ? '#10b981' : '#ef4444',
-                              display: 'inline-block'
-                          }}></span>
-                          <span>
-                              WebSocket: {heliusWsStatus.connected ? '已连接' : '未连接'}
-                          </span>
-                          {heliusWsStatus.reconnectCount > 0 && (
-                              <span style={{ fontSize: '9px', color: '#6b7280' }}>
-                                  (重连 {heliusWsStatus.reconnectCount} 次)
+              {/* 行2：指标数据一行 */}
+              {heliusMetrics ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '10px', color: styles.colors.textSecondary }}>
+                      <span><span style={{ color: '#9ca3af' }}>活跃</span> {heliusMetrics.activeCount}</span>
+                      <span style={{ color: styles.colors.border }}>|</span>
+                      <span><span style={{ color: '#9ca3af' }}>退出</span> {heliusMetrics.exitedCount}</span>
+                      {heliusStats && (
+                          <>
+                              <span style={{ color: styles.colors.border }}>|</span>
+                              <span title={`Helius获取: ${heliusStats.heliusFetchedTotal || 0} | WS=${heliusStats.bySources.websocket} 插件=${heliusStats.bySources.plugin}`}>
+                                  处理 {heliusStats.isProcessed}/{heliusStats.total}
                               </span>
-                          )}
-                      </div>
-                      {heliusWsStatus.error && (
-                          <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '4px' }}>
-                              错误: {heliusWsStatus.error}
-                          </div>
-                      )}
-                      {heliusVerifyStatus.lastVerifyTime && (
-                          <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '4px' }}>
-                              上次校验: {Math.floor(heliusVerifyStatus.timeSinceLastVerify / 1000)}秒前
-                          </div>
+                              <span style={{ color: styles.colors.border }}>|</span>
+                              <span style={{ color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b' }}>
+                                  {heliusStats.needFetch === 0 ? `✓ Sig${heliusStats.total}` : `⚠ Sig${heliusStats.hasData}/${heliusStats.total}`}
+                              </span>
+                              {heliusMetrics.skippedWhaleCount > 0 && (
+                                  <>
+                                      <span style={{ color: styles.colors.border }}>|</span>
+                                      <span>跳庄 {heliusMetrics.skippedWhaleCount}</span>
+                                  </>
+                              )}
+                          </>
                       )}
                   </div>
+              ) : (
+                  <div style={{ fontSize: '10px', color: styles.colors.textSecondary, fontStyle: 'italic' }}>等待 mint 数据...</div>
               )}
-
-              {heliusMetrics && (
-                  <>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11px' }}>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>活跃: </span>
-                              <span>{heliusMetrics.activeCount}</span>
-                          </div>
-                          <div>
-                              <span style={{ color: styles.colors.textSecondary }}>已退出: </span>
-                              <span>{heliusMetrics.exitedCount}</span>
-                          </div>
-                          <div style={{ gridColumn: '1 / -1' }}>
-                              <span style={{ color: styles.colors.textSecondary }}>当前价格: </span>
-                              <span style={{ fontSize: '10px' }}>{heliusMetrics.currentPrice.toFixed(10)} SOL</span>
-                          </div>
-                          {heliusStats && (
-                              <>
-                                  <div style={{ gridColumn: '1 / -1', fontSize: '10px', color: styles.colors.textSecondary }}>
-                                      已处理: {heliusStats.isProcessed}/{heliusStats.total} | Sig处理总数: {heliusMetrics.totalProcessed}
-                                      {heliusMetrics.skippedWhaleCount > 0 && ` | 跳过庄家: ${heliusMetrics.skippedWhaleCount}`}
-                                  </div>
-                                  <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary, marginTop: '2px' }}>
-                                      Helius获取: {heliusStats.heliusFetchedTotal || 0} | WS={heliusStats.bySources.websocket} 插件={heliusStats.bySources.plugin}
-                                  </div>
-                                  {heliusStats.byDataSource && (
-                                      <div style={{ gridColumn: '1 / -1', fontSize: '9px', color: styles.colors.textSecondary }}>
-                                          详情来源: API={heliusStats.byDataSource.api} 缓存={heliusStats.byDataSource.cache} 插件={heliusStats.byDataSource.plugin} WS={heliusStats.byDataSource.websocket}
-                                      </div>
-                                  )}
-                                  <div style={{
-                                      gridColumn: '1 / -1',
-                                      fontSize: '9px',
-                                      marginTop: '2px',
-                                      color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b'
-                                  }}>
-                                      {heliusStats.needFetch === 0
-                                          ? `✓ Sig 已补全 (${heliusStats.total}/${heliusStats.total})`
-                                          : `⚠ Sig 未补全 (${heliusStats.hasData}/${heliusStats.total})`
-                                      }
-                                  </div>
-                              </>
-                          )}
-                      </div>
-                  </>
-              )}
-              {!heliusMetrics && (
-                  <div style={{ fontSize: '11px', color: styles.colors.textSecondary, fontStyle: 'italic' }}>
-                      等待 mint 页面数据...
-                  </div>
+              {heliusWsStatus.error && (
+                  <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
               )}
 
               {/* 数据流日志控制 */}
@@ -1668,10 +1602,41 @@ const App = () => {
               ))}
           </div>
 
-          {/* Detail View */}
-          <div style={styles.detailView}>
-              {selectedItem ? (
-                  <div style={{ whiteSpace: 'pre-wrap', fontSize: '11px', lineHeight: '1.6' }}>
+          {/* Detail Modal */}
+          {selectedItem && (
+              <div
+                  onClick={() => setSelectedOwner(null)}
+                  style={{
+                      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: 'rgba(0,0,0,0.6)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      zIndex: 9999
+                  }}
+              >
+                  <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                          background: styles.colors.cardBg || '#1f2937',
+                          border: `1px solid ${styles.colors.border}`,
+                          borderRadius: '8px',
+                          padding: '12px',
+                          width: '92%',
+                          maxHeight: '80vh',
+                          overflowY: 'auto',
+                          fontSize: '11px',
+                          color: styles.colors.text,
+                          lineHeight: '1.6'
+                      }}
+                  >
+                      {/* Modal Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: `1px solid ${styles.colors.border}`, paddingBottom: '6px' }}>
+                          <span style={{ fontWeight: 'bold', color: '#60a5fa', fontSize: '12px' }}>📋 用户详情</span>
+                          <button
+                              onClick={() => setSelectedOwner(null)}
+                              style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: '0 4px' }}
+                          >×</button>
+                      </div>
+
                       {/* 基本信息 */}
                       <div style={{ color: '#60a5fa', fontWeight: 'bold', marginBottom: '4px' }}>📋 基本信息</div>
                       owner: {selectedItem.owner}<br/>
@@ -1727,36 +1692,34 @@ const App = () => {
                           </>
                       )}
 
-                  {/* 庄家得分详情 */}
-                  {(selectedItem.score || 0) > 0 && (
-                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
-                          <div style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: '4px' }}>
-                              🎯 庄家得分: {selectedItem.score}
+                      {/* 庄家得分详情 */}
+                      {(selectedItem.score || 0) > 0 && (
+                          <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
+                              <div style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: '4px' }}>
+                                  🎯 庄家得分: {selectedItem.score}
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#d1d5db', lineHeight: '1.4' }}>
+                                  {(selectedItem.score_reasons || []).map((r, i) => (
+                                      <div key={i}>• {r}</div>
+                                  ))}
+                              </div>
                           </div>
-                          <div style={{ fontSize: '10px', color: '#d1d5db', lineHeight: '1.4' }}>
-                              {(selectedItem.score_reasons || []).map((r, i) => (
-                                  <div key={i}>• {r}</div>
-                              ))}
-                          </div>
-                      </div>
-                  )}
+                      )}
 
-                  {/* 完整数据（调试用） */}
-                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
-                      <div style={{ color: '#6b7280', fontSize: '10px', cursor: 'pointer' }}
-                           onClick={() => {
-                               console.log('[用户完整数据]', selectedItem);
-                               navigator.clipboard.writeText(JSON.stringify(selectedItem, null, 2));
-                               addLog('用户数据已复制到剪贴板');
-                           }}>
-                          💾 点击复制完整数据到剪贴板
+                      {/* 完整数据（调试用） */}
+                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
+                          <div style={{ color: '#6b7280', fontSize: '10px', cursor: 'pointer' }}
+                               onClick={() => {
+                                   console.log('[用户完整数据]', selectedItem);
+                                   navigator.clipboard.writeText(JSON.stringify(selectedItem, null, 2));
+                                   addLog('用户数据已复制到剪贴板');
+                               }}>
+                              💾 点击复制完整数据到剪贴板
+                          </div>
                       </div>
                   </div>
               </div>
-              ) : (
-                  <div>点击列表项查看详情</div>
-              )}
-          </div>
+          )}
           
           {/* Footer Status Bar */}
           <div style={styles.footer}>

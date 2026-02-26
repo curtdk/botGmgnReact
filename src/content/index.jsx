@@ -589,17 +589,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // 而是从 HeliusIntegration 获取过滤后的数据
         let hookData = null;
         if (window.__heliusIntegration && window.__heliusIntegration.monitor) {
-            const userInfo = window.__heliusIntegration.monitor.metricsEngine.userInfo;
+            const traderStats = window.__heliusIntegration.monitor.metricsEngine.traderStats;
             const filteredUsers = window.__heliusIntegration.monitor.metricsEngine.filteredUsers;
 
-            // 使用 Object.entries() 确保地址匹配正确
-            const holdersData = Object.entries(userInfo)
+            // traderStats 已合并 holder 数据，是唯一数据源
+            const holdersData = Object.entries(traderStats)
                 .filter(([address]) => filteredUsers.has(address))
-                .map(([, info]) => ({
-                    ...info,
-                    status: info.status || '散户',
-                    score: info.score || 0,
-                    score_reasons: info.score_reasons || []
+                .map(([, stats]) => ({
+                    ...stats,
+                    status: stats.status || '散户',
+                    score: stats.score || 0,
+                    score_reasons: stats.score_reasons || []
                 }));
 
             if (holdersData.length > 0) {

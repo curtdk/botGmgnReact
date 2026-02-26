@@ -801,29 +801,27 @@ class HeliusIntegration {
   sendDataToSidepanel() {
     if (!this.monitor) return;
 
-    const userInfo = this.monitor.metricsEngine.userInfo;
     const filteredUsers = this.monitor.metricsEngine.filteredUsers;
     const traderStats = this.monitor.metricsEngine.traderStats;
     const traderHistory = this.monitor.metricsEngine.traderHistory;
 
-    // 只发送过滤后的用户（score < threshold）
-    const holdersData = Object.entries(userInfo)
+    // 只发送过滤后的散户（filteredUsers = score < threshold）
+    // traderStats 已合并 holder 快照数据，是唯一数据源
+    const holdersData = Object.entries(traderStats)
       .filter(([address]) => filteredUsers.has(address))
-      .map(([address, info]) => {
-        const stats = traderStats[address] || {};
+      .map(([address, stats]) => {
         const history = traderHistory[address] || [];
         return {
-          ...info,
-          // 用 trade 计算结果覆盖 holder 快照值
-          ui_amount: stats.netTokenReceived !== undefined ? stats.netTokenReceived : (info.ui_amount || 0),
-          total_buy_u: stats.totalBuySol !== undefined ? stats.totalBuySol : (info.total_buy_u || 0),
+          ...stats,
+          // 优先用 trade 统计值
+          ui_amount: stats.netTokenReceived !== undefined ? stats.netTokenReceived : (stats.ui_amount || 0),
+          total_buy_u: stats.totalBuySol !== undefined ? stats.totalBuySol : (stats.total_buy_u || 0),
           netflow_amount: stats.netSolSpent || 0,
           total_sell_u: stats.totalSellSol || 0,
-          // 计算来源的 sig 数量
           trade_sig_count: history.length,
-          status: info.status || '散户',
-          score: info.score || 0,
-          score_reasons: info.score_reasons || []
+          status: stats.status || '散户',
+          score: stats.score || 0,
+          score_reasons: stats.score_reasons || []
         };
       });
 
@@ -846,7 +844,7 @@ class HeliusIntegration {
       '发送数据到 Sidepanel',
       `发送 ${holdersData.length} 个过滤后的用户数据到 Sidepanel UI`,
       {
-        totalUsers: Object.keys(userInfo).length,
+        totalUsers: Object.keys(traderStats).length,
         filteredUsers: holdersData.length,
         whaleCount: whaleCount,
         retailCount: retailCount,
