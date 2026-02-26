@@ -533,6 +533,12 @@ export default class HeliusMonitor {
       if (this.onMetricsUpdate && !this.isStopped) {
         this.onMetricsUpdate(this.metricsEngine.getMetrics());
       }
+
+      // 检测是否有尚未评分的地址，触发快速评分
+      const txAddr = state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
+      if (txAddr && this.metricsEngine.traderStats[txAddr]?.score === undefined) {
+        this._scheduleQuickScore();
+      }
     }
   }
 
@@ -980,6 +986,36 @@ export default class HeliusMonitor {
     if (this.onMetricsUpdate) {
       this.onMetricsUpdate(metrics);
     }
+  }
+
+  /**
+   * WS 新交易触发的快速评分（500ms debounce）
+   * 用于为尚未评分的地址快速计算分数，消除"检查中"状态
+   * 对无 GMGN holder 快照的地址：funding_account 为空 → 无资金来源规则触发 → score≈10
+   */
+  _scheduleQuickScore() {
+    clearTimeout(this._quickScoreTimer);
+    this._quickScoreTimer = setTimeout(() => {
+      if (this.isStopped) return;
+      const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
+        this.metricsEngine.traderStats,
+        this.metricsEngine.traderStats,
+        this.bossConfig,
+        this.manualScores,
+        this.statusThreshold
+      );
+      for (const [address, scoreData] of scoreMap.entries()) {
+        if (this.metricsEngine.traderStats[address]) {
+          this.metricsEngine.traderStats[address].score = scoreData.score;
+          this.metricsEngine.traderStats[address].status = scoreData.status;
+          this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+        }
+      }
+      const filteredUsers = this.filterUsersByScore(scoreMap);
+      this.metricsEngine.updateWhaleAddresses(whaleAddresses);
+      this.metricsEngine.setFilteredUsers(filteredUsers);
+      this.recalculateMetrics();
+    }, 500);
   }
 
   /**

@@ -681,7 +681,10 @@ export default class MetricsEngine {
       exitedCount,
       totalProcessed: this.processedCount,
       skippedWhaleCount: this.skippedWhaleCount,
-      recentTrades: this.recentTrades.slice(0, 150)
+      recentTrades: this.recentTrades.slice(0, 150).map(t => ({
+        ...t,
+        score: this.traderStats[t.address]?.score  // undefined = 尚未评分
+      }))
     };
   }
 

@@ -189,8 +189,13 @@ const UserListItem = React.memo(({
 });
 
 // 实时交易列表组件
-function RecentTradesList({ trades }) {
+function RecentTradesList({ trades, minScore }) {
     if (!trades || trades.length === 0) return null;
+
+    // 按 score 过滤：有分数且 >= minScore 的屏蔽；无分数或分数 < minScore 的保留
+    const visibleTrades = minScore > 0
+        ? trades.filter(t => t.score === undefined || t.score < minScore)
+        : trades;
 
     const timeAgo = (ts) => {
         const diff = Math.floor((Date.now() - ts) / 1000);
@@ -264,8 +269,9 @@ function RecentTradesList({ trades }) {
             </div>
             {/* 交易行 */}
             <div style={{ maxHeight: '200px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
-                {trades.map((t, i) => {
+                {visibleTrades.map((t, i) => {
                     const isBuy = t.action === '买入';
+                    const isPending = t.score === undefined;
                     return (
                         <div key={t.signature + i} style={{
                             display: 'flex',
@@ -280,7 +286,9 @@ function RecentTradesList({ trades }) {
                             <span style={colStyle('56px')}>{fmtToken(t.tokenAmount)}</span>
                             <span style={{ ...colStyle('44px'), color: '#e5e7eb' }}>{fmtSol(t.solAmount)}</span>
                             <span style={{ ...colStyle('36px'), color: '#60a5fa', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
-                            <span style={{ flex: 1, textAlign: 'right', color: '#6b7280' }}>{t.label || '散户'}</span>
+                            <span style={{ flex: 1, textAlign: 'right', color: isPending ? '#4b5563' : '#6b7280', fontStyle: isPending ? 'italic' : 'normal' }}>
+                                {isPending ? '检查中' : (t.label || '散户')}
+                            </span>
                         </div>
                     );
                 })}
@@ -1531,7 +1539,7 @@ const App = () => {
           </div>
 
           {/* 实时交易列表 */}
-          <RecentTradesList trades={recentTrades} />
+          <RecentTradesList trades={recentTrades} minScore={minScore} />
 
           {/* List Header */}
           <div style={styles.listHeader}>
