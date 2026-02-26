@@ -25,6 +25,9 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     // [新增] 自动同步备注
     const [autoSyncRemarks, setAutoSyncRemarks] = useState(false);
 
+    // Helius 配置
+    const [heliusApiKey, setHeliusApiKey] = useState('');
+
     // 交易配置
     const [tradeMode, setTradeMode] = useState('backend');
     const [pumpPortalKey, setPumpPortalKey] = useState('');
@@ -51,6 +54,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             'hook_refresh_enabled',
             'api_refresh_enabled', 'activity_monitor_enabled', 'activity_monitor_interval', 'observer_enabled', 'observer_interval', 'boss_rule_source_empty', 'boss_rule_activity',
             'auto_sync_remarks', // [新增]
+            'helius_api_key',
             'trade_mode', 'pumpportal_key', 'slippage', 'priority_fee', 'pool',
             'fixed_buy_sol', 'fixed_sell_pct'
         ], (res) => {
@@ -80,6 +84,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
                 }
             }
 
+            if(res.helius_api_key) setHeliusApiKey(res.helius_api_key);
             if(res.trade_mode) setTradeMode(res.trade_mode);
             if(res.pumpportal_key) setPumpPortalKey(res.pumpportal_key);
             if(res.slippage) setSlippage(res.slippage);
@@ -127,6 +132,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
                 ]
             },
 
+            helius_api_key: heliusApiKey.trim(),
             trade_mode: tradeMode,
             pumpportal_key: pumpPortalKey.trim(),
             slippage: parseFloat(slippage),
@@ -245,6 +251,10 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
                     <div className="row" style={rowStyle}>
                         <label style={labelStyle}>API Keys</label>
                         <textarea value={envKeys} onChange={e=>setEnvKeys(e.target.value)} rows={2} style={{...inputStyle, resize:'vertical'}} placeholder="Birdeye Key, 每行一个"></textarea>
+                    </div>
+                    <div className="row" style={rowStyle}>
+                        <label style={labelStyle}>Helius Key</label>
+                        <input type="password" value={heliusApiKey} onChange={e=>setHeliusApiKey(e.target.value)} style={inputStyle} placeholder="Helius API Key"/>
                     </div>
                 </div>
 

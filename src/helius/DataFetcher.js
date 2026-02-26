@@ -8,13 +8,19 @@
  * 4. 批量获取并发控制
  */
 
-const API_KEY = '2304ce34-8d7d-4b15-a6cf-25722d048b45';
-const RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${API_KEY}`;
-
 export default class DataFetcher {
-  constructor(cacheManager) {
+  constructor(cacheManager, apiKey = '') {
     this.cacheManager = cacheManager;
     this.totalCreditsUsed = 0;
+    this.apiKey = apiKey;
+  }
+
+  setApiKey(key) {
+    this.apiKey = key || '';
+  }
+
+  get rpcUrl() {
+    return `https://mainnet.helius-rpc.com/?api-key=${this.apiKey}`;
   }
 
   /**
@@ -26,7 +32,7 @@ export default class DataFetcher {
 
     while (retries > 0) {
       try {
-        const response = await fetch(RPC_URL, {
+        const response = await fetch(this.rpcUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -15,17 +15,16 @@ import DataFetcher from './DataFetcher.js';
 import ScoringEngine from './ScoringEngine.js';
 import dataFlowLogger from '../utils/Logger.js';
 
-const WSS_URL = `wss://mainnet.helius-rpc.com/?api-key=2304ce34-8d7d-4b15-a6cf-25722d048b45`;
-
 export default class HeliusMonitor {
-  constructor(mintAddress) {
+  constructor(mintAddress, apiKey = '') {
     this.mint = mintAddress;
+    this.apiKey = apiKey;
 
     // 初始化组件
     this.signatureManager = new SignatureManager(mintAddress);
     this.cacheManager = new CacheManager();
     this.metricsEngine = new MetricsEngine();
-    this.dataFetcher = new DataFetcher(this.cacheManager);
+    this.dataFetcher = new DataFetcher(this.cacheManager, apiKey);
     this.scoringEngine = new ScoringEngine();
 
     // WebSocket
@@ -145,7 +144,7 @@ export default class HeliusMonitor {
     }
 
     console.log('[WebSocket] 连接中...');
-    this.ws = new WebSocket(WSS_URL);
+    this.ws = new WebSocket(`wss://mainnet.helius-rpc.com/?api-key=${this.apiKey}`);
 
     this.ws.onopen = () => {
       if (this.isStopped) return;  // 检查停止标志
@@ -539,6 +538,15 @@ export default class HeliusMonitor {
 
   /**
    * 设置 Helius API 开关
+   * 设置 Helius API Key
+   */
+  setApiKey(key) {
+    this.apiKey = key || '';
+    this.dataFetcher.setApiKey(this.apiKey);
+    console.log('[HeliusMonitor] API Key 已更新');
+  }
+
+  /**
    * @param {boolean} enabled - 是否启用 Helius API
    */
   setHeliusApiEnabled(enabled) {

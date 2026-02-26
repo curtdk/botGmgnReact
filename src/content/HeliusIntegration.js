@@ -40,6 +40,7 @@ class HeliusIntegration {
     this.bossConfig = {}; // 庄家检测配置（用于 FlowerMarker）
     this.scoreThreshold = 100; // Score< 过滤阈值
     this.statusThreshold = 50; // 状态判断阈值
+    this.apiKey = ''; // Helius API Key
 
     console.log('[Helius集成] 初始化...');
     this.init();
@@ -58,9 +59,11 @@ class HeliusIntegration {
       'boss_config',
       'score_threshold',
       'status_threshold',
+      'helius_api_key',
       `manual_scores_${currentMint}` // 加载手动标记数据
     ], (res) => {
       this.enabled = res.helius_monitor_enabled || false;
+      this.apiKey = res.helius_api_key || '';
 
       // 合并配置:使用默认配置作为基础,然后覆盖用户配置
       const defaultConfig = this.getDefaultConfig();
@@ -466,6 +469,9 @@ class HeliusIntegration {
 
     this.currentMint = mint;
     this.monitor = new HeliusMonitor(mint);
+
+    // 注入 API Key
+    this.monitor.setApiKey(this.apiKey);
 
     // 设置 API 开关状态
     this.monitor.setHeliusApiEnabled(this.enabled);
@@ -1163,6 +1169,13 @@ class HeliusIntegration {
           console.log('[Helius集成] 状态判断阈值已更新:', this.statusThreshold);
           if (this.monitor) {
             this.monitor.setStatusThreshold(this.statusThreshold);
+          }
+        }
+        if (changes.helius_api_key) {
+          this.apiKey = changes.helius_api_key.newValue || '';
+          console.log('[Helius集成] API Key 已更新');
+          if (this.monitor) {
+            this.monitor.setApiKey(this.apiKey);
           }
         }
       }
