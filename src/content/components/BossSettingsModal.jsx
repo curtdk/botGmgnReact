@@ -8,6 +8,8 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
         weight_no_source: 10,
         enable_hidden_relay: false,
         weight_hidden_relay: 15,
+        hidden_relay_max_pages: 10,
+        verify_interval_sec: 30,
 
         enable_same_source: false,
         same_source_n: 5,
@@ -78,6 +80,8 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
         // 1. 基础规则
         finalConfig.weight_no_source = processNum('无资金来源权重', config.weight_no_source, true);
         finalConfig.weight_hidden_relay = processNum('隐藏中转权重', config.weight_hidden_relay, true);
+        finalConfig.hidden_relay_max_pages = processNum('中转检测最多翻页数', config.hidden_relay_max_pages, true);
+        finalConfig.verify_interval_sec = processNum('定期校验间隔(秒)', config.verify_interval_sec, true);
         
         finalConfig.same_source_n = processNum('同源账户数量', config.same_source_n, true);
         finalConfig.weight_same_source = processNum('同源账户权重', config.weight_same_source, true);
@@ -168,7 +172,10 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
                         weight={config.weight_hidden_relay}
                         onWeightChange={v => handleChange('weight_hidden_relay', v)}
                     >
-                        第一笔交易含 Create+CloseAccount 指令（资金隐藏中转到此钱包）
+                        <div>第一笔交易含 Create+CloseAccount 指令（资金隐藏中转到此钱包）</div>
+                        <div style={{ marginTop: '4px' }}>
+                            最多翻 <NumberInput value={config.hidden_relay_max_pages} onChange={v => handleChange('hidden_relay_max_pages', v)} width="45px" /> 页（每页1000条）
+                        </div>
                     </Card>
 
                     {/* 2. 同源账户 */}
@@ -273,6 +280,14 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
                         来源时间相差 &le; <NumberInput value={config.rule_source_time.diff_sec} onChange={v => handleRuleChange('rule_source_time', 'diff_sec', v)} width="50px" /> 秒
                         且数量 &ge; <NumberInput value={config.rule_source_time.count} onChange={v => handleRuleChange('rule_source_time', 'count', v)} width="40px" /> 个
                     </Card>
+
+                    {/* 定期校验间隔 */}
+                    <div style={{ background: '#111827', padding: '10px', borderRadius: '4px', border: '1px solid #374151' }}>
+                        <div style={{ fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>定期校验间隔</div>
+                        <div style={{ paddingLeft: '24px', fontSize: '12px', color: '#d1d5db' }}>
+                            每 <NumberInput value={config.verify_interval_sec} onChange={v => handleChange('verify_interval_sec', v)} width="45px" /> 秒重新校验一次持仓数据（默认30秒）
+                        </div>
+                    </div>
 
                 </div>
 

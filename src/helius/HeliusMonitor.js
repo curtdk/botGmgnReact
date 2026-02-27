@@ -105,13 +105,14 @@ export default class HeliusMonitor {
       this.isInitialized = true;
       console.log('\n[系统] 进入实时模式，开始监听新交易...\n');
 
-      // 8. 启动定期校验 (每30秒)
+      // 8. 启动定期校验
+      const verifyIntervalSec = this.bossConfig?.verify_interval_sec || 30;
       this.verifyInterval = setInterval(() => {
         if (!this.isStopped && this.isInitialized) {
           this.verifySignatures();
         }
-      }, 30 * 1000);
-      console.log('[校验] 定期校验已启动 (间隔: 30秒)');
+      }, verifyIntervalSec * 1000);
+      console.log(`[校验] 定期校验已启动 (间隔: ${verifyIntervalSec}秒)`);
 
     } catch (error) {
       if (this.isStopped) {
@@ -1201,7 +1202,7 @@ export default class HeliusMonitor {
           let before = undefined;
           let lastBatch = [];
           let pageCount = 0;
-          const MAX_PAGES = 10;
+          const MAX_PAGES = this.bossConfig?.hidden_relay_max_pages || 10;
 
           for (let page = 0; page < MAX_PAGES; page++) {
             const params = [address, { limit: 1000, ...(before ? { before } : {}) }];
