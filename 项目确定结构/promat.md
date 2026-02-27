@@ -1,4 +1,52 @@
 
+# 组件 / 对象 中文名称对照表
+
+## UI 组件
+
+| 中文名 | 代码名 | 文件 | 作用 |
+|--------|--------|------|------|
+| **实时交易列表** | `RecentTradesList` | `App.jsx` | 显示 WS 实时交易，支持分数筛选三态（正常/检查中/屏蔽），金额列随单位切换 |
+| **用户列表行** | `UserListItem` | `App.jsx` | 渲染用户榜单每一行，`React.memo` 优化，支持 SOL/USDT 金额切换 |
+
+## 状态变量（App.jsx）
+
+| 中文名 | 代码名 | 类型 | 作用 |
+|--------|--------|------|------|
+| **单位切换** | `metricsUnit` | `'SOL' \| 'USDT'` | 控制全局金额单位，影响四大指标 + 实时交易列表 + 用户列表 |
+| **SOL单价** | `solUsdtPrice` | `number` | 切换到 USDT 时从 Binance 拉取的 SOL/USDT 价格，用于乘法换算 |
+| **分数阈值** | `minScore` | `number` | Score< 阈值，实时交易列表和用户列表共用，0=不过滤 |
+| **实时交易** | `recentTrades` | `array` | 来自 heliusMetrics，每条带 score 字段（getMetrics 实时附加）|
+
+## 核心函数
+
+| 中文名 | 代码名 | 位置 | 作用 |
+|--------|--------|------|------|
+| **单位切换按钮** | `handleMetricsUnitToggle()` | `App.jsx` | 点击 SOL/USDT 按钮，调 Binance API 拉 SOL 价格，写入 solUsdtPrice |
+| **四大指标格式化** | `fmtMetric(solVal)` | `App.jsx` | 将 SOL 值转为当前单位字符串，四大指标专用 |
+| **用户列表金额转换** | `toDisp(solVal)` | `UserListItem` 内 | 将 SOL 值按当前单位格式化，用于成本/下注/落袋/浮亏列 |
+| **交易金额格式化** | `fmtSol(v)` | `RecentTradesList` 内 | 将 SOL 值格式化，USDT 模式下自动乘以 solUsdtPrice |
+| **快速评分** | `_scheduleQuickScore()` | `HeliusMonitor.js` | 500ms debounce，WS 新地址无评分时触发，消除"检查中"状态 |
+
+## 后端引擎对象
+
+| 中文名 | 代码名 | 文件 | 作用 |
+|--------|--------|------|------|
+| **交易引擎** | `MetricsEngine` | `MetricsEngine.js` | 维护 traderStats / recentTrades，提供 getMetrics() |
+| **Helius监控** | `HeliusMonitor` | `HeliusMonitor.js` | WS 实时监听 + GMGN holder 快照 + 评分调度 |
+| **评分引擎** | `ScoringEngine` | `ScoringEngine.js` | 调 BossLogic 计算 scoreMap，输出 score/status/reasons |
+| **庄家规则** | `BossLogic` | `BossLogic.js` | 9条规则计算单个用户分数，部分依赖 GMGN holder 快照 |
+
+## 核心数据对象
+
+| 中文名 | 代码名 | 说明 |
+|--------|--------|------|
+| **交易员档案** | `traderStats[address]` | 每个地址的全量数据：WS统计 + GMGN快照 + 评分结果 |
+| **实时交易记录** | `recentTrades[i]` | 每条交易：signature/address/action/solAmount/score |
+| **散户集合** | `filteredUsers` | score < scoreThreshold 的地址 Set，控制用户列表可见性 |
+| **评分结果集** | `scoreMap` | calculateScores 返回，Map<address, {score, status, reasons}> |
+
+---
+
 核心数据流
 
 WS 新交易 → processTransaction() → updateTraderState()

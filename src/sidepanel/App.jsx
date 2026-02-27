@@ -60,8 +60,16 @@ const UserListItem = React.memo(({
     styles,
     onSelect,
     onStatusChange,
-    currentPrice
+    currentPrice,
+    metricsUnit,
+    solUsdtPrice,
 }) => {
+    // SOL → USDT 换算（USDT 模式下乘以 solUsdtPrice）
+    const toDisp = (solVal) => {
+        const v = metricsUnit === 'USDT' && solUsdtPrice > 0 ? solVal * solUsdtPrice : solVal;
+        return Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2);
+    };
+
     const handleCheckboxChange = (e) => {
         e.stopPropagation();
         const newStatus = e.target.checked ? '庄家' : '散户';
@@ -133,14 +141,14 @@ const UserListItem = React.memo(({
                     case 'net_cost': {
                         const v = parseFloat(item.netflow_amount || 0);
                         style.color = v <= 0 ? '#10b981' : '#e5e7eb';
-                        content = v.toFixed(2);
+                        content = toDisp(v);
                         break;
                     }
                     case 'total_buy':
-                        content = parseFloat(item.total_buy_u || 0).toFixed(2);
+                        content = toDisp(parseFloat(item.total_buy_u || 0));
                         break;
                     case 'realized':
-                        content = parseFloat(item.total_sell_u || 0).toFixed(2);
+                        content = toDisp(parseFloat(item.total_sell_u || 0));
                         break;
                     case 'floating_pnl': {
                         const price = currentPrice || 0;
@@ -148,7 +156,7 @@ const UserListItem = React.memo(({
                         const cost = parseFloat(item.netflow_amount || 0);
                         const pnl = tokenVal - cost;
                         style.color = pnl >= 0 ? '#10b981' : '#ef4444';
-                        content = pnl.toFixed(2);
+                        content = toDisp(pnl);
                         break;
                     }
                     case 'pct':
@@ -164,10 +172,11 @@ const UserListItem = React.memo(({
     );
 }, (prevProps, nextProps) => {
     // 自定义比较函数：只有这些关键字段变化时才重新渲染
-    // 如果 item 引用相同，说明数据没变，直接返回 true（不重新渲染）
     if (prevProps.item === nextProps.item &&
         prevProps.isSelected === nextProps.isSelected &&
-        prevProps.visibleColIds === nextProps.visibleColIds) {
+        prevProps.visibleColIds === nextProps.visibleColIds &&
+        prevProps.metricsUnit === nextProps.metricsUnit &&
+        prevProps.solUsdtPrice === nextProps.solUsdtPrice) {
         return true;
     }
 
@@ -182,6 +191,8 @@ const UserListItem = React.memo(({
         prevProps.item.holding_share_pct === nextProps.item.holding_share_pct &&
         prevProps.item.ui_amount === nextProps.item.ui_amount &&
         prevProps.currentPrice === nextProps.currentPrice &&
+        prevProps.metricsUnit === nextProps.metricsUnit &&
+        prevProps.solUsdtPrice === nextProps.solUsdtPrice &&
         prevProps.isSelected === nextProps.isSelected &&
         prevProps.visibleColIds.length === nextProps.visibleColIds.length &&
         prevProps.visibleColIds.every((id, i) => id === nextProps.visibleColIds[i])
@@ -189,7 +200,7 @@ const UserListItem = React.memo(({
 });
 
 // 实时交易列表组件
-function RecentTradesList({ trades, minScore }) {
+function RecentTradesList({ trades, minScore, metricsUnit, solUsdtPrice }) {
     if (!trades || trades.length === 0) return null;
 
     // 按 score 过滤：有分数且 >= minScore 的屏蔽；无分数或分数 < minScore 的保留
@@ -213,9 +224,10 @@ function RecentTradesList({ trades, minScore }) {
     };
 
     const fmtSol = (v) => {
-        if (v >= 100) return v.toFixed(0);
-        if (v >= 10) return v.toFixed(1);
-        return v.toFixed(2);
+        const val = metricsUnit === 'USDT' && solUsdtPrice > 0 ? v * solUsdtPrice : v;
+        if (val >= 100) return val.toFixed(0);
+        if (val >= 10) return val.toFixed(1);
+        return val.toFixed(2);
     };
 
     const shortAddr = (addr) => addr ? addr.slice(0, 4) : '----';
@@ -1191,7 +1203,12 @@ const App = () => {
           {heliusMetrics && (
               <>
                   {/* 切换按钮 */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                      {metricsUnit === 'USDT' && solUsdtPrice > 0 && (
+                          <span style={{ fontSize: '10px', color: '#6b7280' }}>
+                              1 SOL ≈ ${solUsdtPrice.toFixed(0)}
+                          </span>
+                      )}
                       <button onClick={handleMetricsUnitToggle} style={{
                           fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
                           border: '1px solid #374151',
@@ -1539,7 +1556,7 @@ const App = () => {
           </div>
 
           {/* 实时交易列表 */}
-          <RecentTradesList trades={recentTrades} minScore={minScore} />
+          <RecentTradesList trades={recentTrades} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} />
 
           {/* List Header */}
           <div style={styles.listHeader}>
@@ -1587,6 +1604,8 @@ const App = () => {
                       styles={styles}
                       onSelect={setSelectedOwner}
                       currentPrice={heliusMetrics?.currentPrice || currentPrice || 0}
+                      metricsUnit={metricsUnit}
+                      solUsdtPrice={solUsdtPrice}
                       onStatusChange={(owner, newStatus) => {
                           // 临时更新 UI 显示
                           const item = items.find(i => i.owner === owner);
