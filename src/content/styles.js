@@ -162,6 +162,7 @@ export const getStyles = (theme, isOpen, width, listFontSize) => {
         },
         listContent: {
             flex: 1,
+            maxHeight: '120px',
             overflowY: 'auto'
         },
         listItem: (isSelected) => ({

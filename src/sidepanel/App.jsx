@@ -140,14 +140,16 @@ const UserListItem = React.memo(({
                         break;
                     case 'net_cost': {
                         const v = parseFloat(item.netflow_amount || 0);
-                        style.color = v <= 0 ? '#10b981' : '#e5e7eb';
+                        style.color = v > 0 ? '#22c55e' : v < 0 ? '#ef4444' : '#e5e7eb';
                         content = toDisp(v);
                         break;
                     }
                     case 'total_buy':
+                        style.color = '#22c55e';
                         content = toDisp(parseFloat(item.total_buy_u || 0));
                         break;
                     case 'realized':
+                        style.color = '#ef4444';
                         content = toDisp(parseFloat(item.total_sell_u || 0));
                         break;
                     case 'floating_pnl': {
@@ -280,7 +282,7 @@ function RecentTradesList({ trades, minScore, metricsUnit, solUsdtPrice }) {
                 <span style={{ flex: 1, textAlign: 'right' }}>标签</span>
             </div>
             {/* 交易行 */}
-            <div style={{ maxHeight: '200px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
+            <div style={{ maxHeight: '280px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
                 {visibleTrades.map((t, i) => {
                     const isBuy = t.action === '买入';
                     const isPending = t.score === undefined;
@@ -296,7 +298,7 @@ function RecentTradesList({ trades, minScore, metricsUnit, solUsdtPrice }) {
                             <span style={{ ...colStyle('30px', 'left'), color: '#6b7280' }}>{timeAgo(t.rawTimestamp)}</span>
                             <span style={{ ...colStyle('36px', 'left'), color: isBuy ? '#22c55e' : '#ef4444', fontWeight: 500 }}>{t.action}</span>
                             <span style={colStyle('56px')}>{fmtToken(t.tokenAmount)}</span>
-                            <span style={{ ...colStyle('44px'), color: '#e5e7eb' }}>{fmtSol(t.solAmount)}</span>
+                            <span style={{ ...colStyle('44px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}</span>
                             <span style={{ ...colStyle('36px'), color: '#60a5fa', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
                             <span style={{ flex: 1, textAlign: 'right', color: isPending ? '#4b5563' : '#6b7280', fontStyle: isPending ? 'italic' : 'normal' }}>
                                 {isPending ? '检查中' : (t.label || '散户')}
@@ -1343,147 +1345,6 @@ const App = () => {
               </div>
           )}
 
-          {/* Helius 指标 */}
-          <div style={{
-              ...styles.summary,
-              marginTop: '8px'
-          }}>
-              {/* 行1：标题 + Mint + 启用开关 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>📊 实时指标</span>
-                  {pageMint && (
-                      <span
-                          style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '10px', cursor: 'pointer' }}
-                          title={pageMint}
-                          onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
-                      >
-                          {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
-                      </span>
-                  )}
-                  <span style={{ color: styles.colors.border }}>|</span>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', fontSize: '10px', color: styles.colors.textSecondary }}
-                      title="关闭后仍会接收 GMGN 数据，但不调用 Helius API">
-                      <input type="checkbox" checked={heliusMonitorEnabled} onChange={e => toggleHeliusMonitor(e.target.checked)} style={{ cursor: 'pointer', margin: 0 }} />
-                      Helius
-                  </label>
-                  {/* WS状态 */}
-                  {heliusMonitorEnabled && (
-                      <>
-                          <span style={{ color: styles.colors.border }}>|</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}
-                              title={heliusWsStatus.error ? `错误: ${heliusWsStatus.error}` : (heliusWsStatus.reconnectCount > 0 ? `重连 ${heliusWsStatus.reconnectCount} 次` : '')}>
-                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: heliusWsStatus.connected ? '#10b981' : '#ef4444', display: 'inline-block', flexShrink: 0 }}></span>
-                              <span style={{ color: heliusWsStatus.connected ? '#10b981' : '#ef4444' }}>WS</span>
-                          </span>
-                      </>
-                  )}
-              </div>
-
-              {/* 行2：指标数据一行 */}
-              {heliusMetrics ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '10px', color: styles.colors.textSecondary }}>
-                      <span><span style={{ color: '#9ca3af' }}>活跃</span> {heliusMetrics.activeCount}</span>
-                      <span style={{ color: styles.colors.border }}>|</span>
-                      <span><span style={{ color: '#9ca3af' }}>退出</span> {heliusMetrics.exitedCount}</span>
-                      {heliusStats && (
-                          <>
-                              <span style={{ color: styles.colors.border }}>|</span>
-                              <span title={`Helius获取: ${heliusStats.heliusFetchedTotal || 0} | WS=${heliusStats.bySources.websocket} 插件=${heliusStats.bySources.plugin}`}>
-                                  处理 {heliusStats.isProcessed}/{heliusStats.total}
-                              </span>
-                              <span style={{ color: styles.colors.border }}>|</span>
-                              <span style={{ color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b' }}>
-                                  {heliusStats.needFetch === 0 ? `✓ Sig${heliusStats.total}` : `⚠ Sig${heliusStats.hasData}/${heliusStats.total}`}
-                              </span>
-                              {heliusMetrics.skippedWhaleCount > 0 && (
-                                  <>
-                                      <span style={{ color: styles.colors.border }}>|</span>
-                                      <span>跳庄 {heliusMetrics.skippedWhaleCount}</span>
-                                  </>
-                              )}
-                          </>
-                      )}
-                  </div>
-              ) : (
-                  <div style={{ fontSize: '10px', color: styles.colors.textSecondary, fontStyle: 'italic' }}>等待 mint 数据...</div>
-              )}
-              {heliusWsStatus.error && (
-                  <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
-              )}
-
-              {/* 数据流日志控制 */}
-              <div style={{
-                  marginTop: '8px',
-                  padding: '8px',
-                  backgroundColor: styles.colors.cardBg,
-                  borderRadius: '4px',
-                  border: `1px solid ${styles.colors.border}`
-              }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 'bold' }}>📋 数据流日志</span>
-                      <label style={{
-                          fontSize: '10px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          cursor: 'pointer',
-                          color: styles.colors.textSecondary
-                      }}>
-                          <input
-                              type="checkbox"
-                              checked={dataFlowLoggerEnabled}
-                              onChange={e => toggleDataFlowLogger(e.target.checked)}
-                              style={{ cursor: 'pointer' }}
-                          />
-                          启用日志
-                      </label>
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px', fontSize: '10px' }}>
-                      <button
-                          onClick={viewLogs}
-                          style={{
-                              ...styles.smBtn,
-                              flex: 1,
-                              padding: '4px 8px',
-                              backgroundColor: '#3b82f6',
-                              color: '#fff'
-                          }}
-                      >
-                          查看日志 ({logStats.total})
-                      </button>
-                      <button
-                          onClick={exportLogs}
-                          style={{
-                              ...styles.smBtn,
-                              flex: 1,
-                              padding: '4px 8px',
-                              backgroundColor: '#10b981',
-                              color: '#fff'
-                          }}
-                      >
-                          导出
-                      </button>
-                      <button
-                          onClick={clearLogs}
-                          style={{
-                              ...styles.smBtn,
-                              flex: 1,
-                              padding: '4px 8px',
-                              backgroundColor: '#ef4444',
-                              color: '#fff'
-                          }}
-                      >
-                          清空
-                      </button>
-                  </div>
-                  {logStats.total > 0 && (
-                      <div style={{ fontSize: '9px', color: styles.colors.textSecondary, marginTop: '4px' }}>
-                          来源: {Object.entries(logStats.bySources).map(([source, count]) => `${source}=${count}`).join(' | ')}
-                      </div>
-                  )}
-              </div>
-          </div>
-
           {/* Filter Bar & Column Settings */}
           <div style={styles.filterBar}>
               {/* 分数筛选下拉框 */}
@@ -1627,6 +1488,147 @@ const App = () => {
                       }}
                   />
               ))}
+          </div>
+
+          {/* Helius 指标 */}
+          <div style={{
+              ...styles.summary,
+              marginTop: '8px'
+          }}>
+              {/* 行1：标题 + Mint + 启用开关 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>📊 实时指标</span>
+                  {pageMint && (
+                      <span
+                          style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '10px', cursor: 'pointer' }}
+                          title={pageMint}
+                          onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
+                      >
+                          {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
+                      </span>
+                  )}
+                  <span style={{ color: styles.colors.border }}>|</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', fontSize: '10px', color: styles.colors.textSecondary }}
+                      title="关闭后仍会接收 GMGN 数据，但不调用 Helius API">
+                      <input type="checkbox" checked={heliusMonitorEnabled} onChange={e => toggleHeliusMonitor(e.target.checked)} style={{ cursor: 'pointer', margin: 0 }} />
+                      Helius
+                  </label>
+                  {/* WS状态 */}
+                  {heliusMonitorEnabled && (
+                      <>
+                          <span style={{ color: styles.colors.border }}>|</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}
+                              title={heliusWsStatus.error ? `错误: ${heliusWsStatus.error}` : (heliusWsStatus.reconnectCount > 0 ? `重连 ${heliusWsStatus.reconnectCount} 次` : '')}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: heliusWsStatus.connected ? '#10b981' : '#ef4444', display: 'inline-block', flexShrink: 0 }}></span>
+                              <span style={{ color: heliusWsStatus.connected ? '#10b981' : '#ef4444' }}>WS</span>
+                          </span>
+                      </>
+                  )}
+              </div>
+
+              {/* 行2：指标数据一行 */}
+              {heliusMetrics ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '10px', color: styles.colors.textSecondary }}>
+                      <span><span style={{ color: '#9ca3af' }}>活跃</span> {heliusMetrics.activeCount}</span>
+                      <span style={{ color: styles.colors.border }}>|</span>
+                      <span><span style={{ color: '#9ca3af' }}>退出</span> {heliusMetrics.exitedCount}</span>
+                      {heliusStats && (
+                          <>
+                              <span style={{ color: styles.colors.border }}>|</span>
+                              <span title={`Helius获取: ${heliusStats.heliusFetchedTotal || 0} | WS=${heliusStats.bySources.websocket} 插件=${heliusStats.bySources.plugin}`}>
+                                  处理 {heliusStats.isProcessed}/{heliusStats.total}
+                              </span>
+                              <span style={{ color: styles.colors.border }}>|</span>
+                              <span style={{ color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b' }}>
+                                  {heliusStats.needFetch === 0 ? `✓ Sig${heliusStats.total}` : `⚠ Sig${heliusStats.hasData}/${heliusStats.total}`}
+                              </span>
+                              {heliusMetrics.skippedWhaleCount > 0 && (
+                                  <>
+                                      <span style={{ color: styles.colors.border }}>|</span>
+                                      <span>跳庄 {heliusMetrics.skippedWhaleCount}</span>
+                                  </>
+                              )}
+                          </>
+                      )}
+                  </div>
+              ) : (
+                  <div style={{ fontSize: '10px', color: styles.colors.textSecondary, fontStyle: 'italic' }}>等待 mint 数据...</div>
+              )}
+              {heliusWsStatus.error && (
+                  <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
+              )}
+
+              {/* 数据流日志控制 */}
+              <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  backgroundColor: styles.colors.cardBg,
+                  borderRadius: '4px',
+                  border: `1px solid ${styles.colors.border}`
+              }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 'bold' }}>📋 数据流日志</span>
+                      <label style={{
+                          fontSize: '10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          cursor: 'pointer',
+                          color: styles.colors.textSecondary
+                      }}>
+                          <input
+                              type="checkbox"
+                              checked={dataFlowLoggerEnabled}
+                              onChange={e => toggleDataFlowLogger(e.target.checked)}
+                              style={{ cursor: 'pointer' }}
+                          />
+                          启用日志
+                      </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', fontSize: '10px' }}>
+                      <button
+                          onClick={viewLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#3b82f6',
+                              color: '#fff'
+                          }}
+                      >
+                          查看日志 ({logStats.total})
+                      </button>
+                      <button
+                          onClick={exportLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#10b981',
+                              color: '#fff'
+                          }}
+                      >
+                          导出
+                      </button>
+                      <button
+                          onClick={clearLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#ef4444',
+                              color: '#fff'
+                          }}
+                      >
+                          清空
+                      </button>
+                  </div>
+                  {logStats.total > 0 && (
+                      <div style={{ fontSize: '9px', color: styles.colors.textSecondary, marginTop: '4px' }}>
+                          来源: {Object.entries(logStats.bySources).map(([source, count]) => `${source}=${count}`).join(' | ')}
+                      </div>
+                  )}
+              </div>
           </div>
 
           {/* Detail Modal */}
