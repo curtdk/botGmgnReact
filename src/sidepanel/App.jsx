@@ -427,6 +427,14 @@ const App = () => {
   const lastGmgnHeadersRef = useRef({}); // 存储最新的 API 请求头
   const [hookUrl, setHookUrl] = useState(''); // 存储最新的 GMGN API URL (state 用于触发副作用)
 
+  // 开始/停止控制
+  const [isStarted, setIsStarted] = useState(false);
+  const [startedMint, setStartedMint] = useState('');
+  const [startStage, setStartStage] = useState('就绪');
+  const [hookUrlReady, setHookUrlReady] = useState(null); // null=未检查 true=可用 false=无缓存
+  const isStartedRef = useRef(false);
+  const startedMintRef = useRef('');
+
   // 使用 Ref 同步配置状态，解决闭包问题
   const hookRefreshEnabledRef = useRef(hookRefreshEnabled);
   const apiRefreshEnabledRef = useRef(apiRefreshEnabled);
@@ -435,6 +443,10 @@ const App = () => {
   const activityMonitorIntervalRef = useRef(activityMonitorInterval);
   const observerEnabledRef = useRef(observerEnabled);
   const observerIntervalRef = useRef(observerInterval);
+
+  // 同步开始/停止 ref（解决定时器闭包问题）
+  useEffect(() => { isStartedRef.current = isStarted; }, [isStarted]);
+  useEffect(() => { startedMintRef.current = startedMint; }, [startedMint]);
 
   // 引用管理器实例
   const scoreManagerRef = useRef(null);
@@ -520,6 +532,54 @@ const App = () => {
   const addLog = (msg) => {
       const time = new Date().toLocaleTimeString('en-GB'); // HH:mm:ss
       setStatusLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 100));
+  };
+
+  /** 开始处理 */
+  const handleStart = () => {
+      if (!pageMint) { addLog('未检测到代币，请先访问 GMGN 代币页面'); return; }
+      setIsStarted(true);
+      setStartedMint(pageMint);
+      isStartedRef.current = true;
+      startedMintRef.current = pageMint;
+      setStartStage('检查 Hook URL...');
+
+      // 检查 hook URL 缓存
+      chrome.storage.local.get([`gmgn_hook_url_${pageMint}`], (res) => {
+          const url = res[`gmgn_hook_url_${pageMint}`];
+          const ready = !!(url && (url.includes('/token_holders') || url.includes('/token_trades')));
+          setHookUrlReady(ready);
+          if (ready) {
+              lastGmgnUrlRef.current = url;
+              addLog('Hook URL: ✓ 可用，开始处理...');
+              setStartStage('获取数据中...');
+              if (apiRefreshEnabledRef.current) handleFullRefresh(false);
+              startHookAutoRefresh();
+          } else {
+              addLog('Hook URL: ⚠ 无缓存，请刷新 GMGN 页面');
+              setStartStage('等待 Hook URL');
+          }
+      });
+
+      // 启动 Helius
+      toggleHeliusMonitor(true);
+  };
+
+  /** 停止所有处理 */
+  const handleStop = () => {
+      setIsStarted(false);
+      setStartedMint('');
+      isStartedRef.current = false;
+      startedMintRef.current = '';
+      setStartStage('已停止');
+      setHookUrlReady(null);
+
+      // 停止定时器
+      if (autoUpdateTimer.current) { clearInterval(autoUpdateTimer.current); autoUpdateTimer.current = null; }
+      if (tradesUpdateTimer.current) { clearInterval(tradesUpdateTimer.current); tradesUpdateTimer.current = null; }
+
+      // 停止 Helius
+      toggleHeliusMonitor(false);
+      addLog('已停止所有处理');
   };
 
   /**
@@ -673,8 +733,9 @@ const App = () => {
    * @param {boolean} quiet - 是否静默模式
    */
   const handleFullRefresh = async (quiet = false) => {
+      if (!isStartedRef.current) return; // 未启动则跳过
       console.log('[GMGN App] handleFullRefresh called, quiet:', quiet);
-      if(!quiet) addLog('状态：正在全量获取...');
+      if(!quiet) { addLog('状态：正在全量获取...'); setStartStage('获取持仓数据...'); }
       
       try {
           if(!pageMint) {
@@ -760,6 +821,7 @@ const App = () => {
    * 修正：通过 Content Script 代理请求，解决跨域和路径问题
    */
   const runHookRefresh = async () => {
+      if (!isStartedRef.current) return; // 未启动则跳过
       const url = lastGmgnUrlRef.current;
       if (!url) {
           addLog('Hook URL: 无URL，请刷新 GMGN 页面获取');
@@ -824,8 +886,21 @@ const App = () => {
       console.log('[GMGN App] Init page for mint:', mint);
       addLog(`检测到新代币: ${mint.slice(0,6)}...`);
 
+      // 如果已启动，切换 mint 时自动停止
+      if (isStartedRef.current) {
+          // 直接重置 ref 和状态（不调用 handleStop 避免循环依赖）
+          isStartedRef.current = false;
+          startedMintRef.current = '';
+          setIsStarted(false);
+          setStartedMint('');
+          setStartStage('就绪');
+          if (autoUpdateTimer.current) { clearInterval(autoUpdateTimer.current); autoUpdateTimer.current = null; }
+          if (tradesUpdateTimer.current) { clearInterval(tradesUpdateTimer.current); tradesUpdateTimer.current = null; }
+          addLog('代币已切换，处理已停止');
+      }
+
       // 1. 初始化/重置管理器
-      scoreManagerRef.current = new WhaleScoreManager(); 
+      scoreManagerRef.current = new WhaleScoreManager();
       scoreManagerRef.current.setMint(mint);
 
       // 2. 重置状态
@@ -834,22 +909,22 @@ const App = () => {
       lastGmgnUrlRef.current = '';
       lastTradesUrlRef.current = ''; // 重置 Trades URL
       setPageMint(mint);
+      setHookUrlReady(null);
 
-      // 2.5 从缓存恢复 hook URL（页面未刷新时可直接使用）
+      // 2.5 从缓存检查 hook URL 是否可用
       chrome.storage.local.get([`gmgn_hook_url_${mint}`], (res) => {
           const cachedUrl = res[`gmgn_hook_url_${mint}`];
           if (cachedUrl && (cachedUrl.includes('/token_holders') || cachedUrl.includes('/token_trades'))) {
               lastGmgnUrlRef.current = cachedUrl;
-              addLog(`Hook URL: 已从缓存恢复，可直接开始`);
+              setHookUrlReady(true);
+              addLog(`Hook URL: ✓ 已从缓存恢复，点击开始即可运行`);
           } else {
-              addLog(`Hook URL: 无缓存，请先刷新 GMGN 页面获取`);
+              setHookUrlReady(false);
+              addLog(`Hook URL: ⚠ 无缓存，请先刷新 GMGN 页面`);
           }
       });
 
-      // 3. 触发刷新
-      if (apiRefreshEnabledRef.current) {
-          handleFullRefresh(false);
-      }
+      // 3. 不再自动触发刷新，等待用户点击"开始"
   };
 
   useEffect(() => {
@@ -896,23 +971,29 @@ const App = () => {
     const handleMessage = (request, sender, sendResponse) => {
         if (request.type === 'UI_RENDER_DATA') {
             // [新增] 接收渲染就绪数据 (已在 Content Script 完成去重、聚类、排序)
+            if (!isStartedRef.current) return; // 未启动，忽略数据更新
             if (request.data && Array.isArray(request.data)) {
+                // mint 不匹配时跳过（防止旧 mint 数据污染）
+                if (startedMintRef.current && request.url) {
+                    const mintMatch = request.url.match(/token_(?:holders|trades)\/[^/]+\/([^?&/]+)/);
+                    if (mintMatch && mintMatch[1] !== startedMintRef.current) return;
+                }
+
                 // 更新 URL 引用 (如果 payload 带了 url)
                 if (request.url) {
                     if (request.url.includes('/token_holders')) {
                         lastGmgnUrlRef.current = request.url;
                         // 持久化到 storage，供下次开始前直接使用
                         if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
+                        setHookUrlReady(true);
                     } else if (request.url.includes('/token_trades')) {
                         lastTradesUrlRef.current = request.url;
                         if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
                     }
                 }
 
+                setStartStage('运行中 · 实时监听');
                 // 直接更新 UI，Side Panel 变为轻量级渲染器
-                // 注意：如果还需要 WhaleScoreManager 用于其他非 UI 逻辑 (如同步状态到 storage)，可以保留
-                // 但不再调用 scoreManagerRef.current.updateData() 进行繁重计算
-                // 无论 scoreManagerRef 是否初始化，都更新 UI（避免首次打开时数据被丢弃）
                 setItems(prev => mergeItems(prev, request.data));
             }
         } else if (request.type === 'PRICE_UPDATE') {
@@ -1089,6 +1170,7 @@ const App = () => {
       addLog(`状态：自动刷新已启动 (${sec}s) Hook:${hookEnabled} API:${apiEnabled}`);
       
       autoUpdateTimer.current = setInterval(() => {
+          if (!isStartedRef.current) return; // 未启动跳过
           const url = lastGmgnUrlRef.current;
           if (hookRefreshEnabledRef.current && url) {
               runHookRefresh();
@@ -1213,7 +1295,44 @@ const App = () => {
         <button onClick={() => setShowTradePanel(true)} style={{...styles.smBtn, flex: 1, background: styles.colors.success, color: '#fff'}}>买卖</button>
         <button onClick={() => setShowBossSettings(true)} style={{...styles.smBtn, flex: 1, background: styles.colors.boss, color: '#000'}}>庄家</button>
         <button onClick={() => setShowStrategyModal(true)} style={{...styles.smBtn, flex: 1, background: '#7c3aed', color: '#fff'}}>策略</button>
+        {/* 开始/停止按钮 */}
+        {pageMint && (
+            isStarted
+                ? <button onClick={handleStop}
+                    style={{...styles.smBtn, flex: 1, background: '#ef4444', color: '#fff', fontWeight: 'bold'}}>
+                    ⏹ 停止
+                  </button>
+                : <button onClick={handleStart}
+                    style={{...styles.smBtn, flex: 1, background: '#22c55e', color: '#fff', fontWeight: 'bold'}}>
+                    ▶ 开始
+                  </button>
+        )}
       </div>
+
+      {/* Mint 状态栏 */}
+      {pageMint && (
+          <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '4px 8px', backgroundColor: '#0d1117',
+              borderBottom: '1px solid #1f2937', fontSize: '11px',
+              flexWrap: 'nowrap', overflow: 'hidden'
+          }}>
+              <span
+                  style={{ color: '#60a5fa', fontFamily: 'monospace', cursor: 'pointer', flexShrink: 0 }}
+                  title={pageMint}
+                  onClick={() => navigator.clipboard.writeText(pageMint)}>
+                  {pageMint.slice(0,6)}...{pageMint.slice(-4)}
+              </span>
+              <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+              {hookUrlReady === true && <span style={{ color: '#22c55e', flexShrink: 0 }}>✓ Hook可用</span>}
+              {hookUrlReady === false && <span style={{ color: '#f59e0b', flexShrink: 0 }}>⚠ 请刷新页面</span>}
+              {hookUrlReady === null && <span style={{ color: '#6b7280', flexShrink: 0 }}>· 待检查</span>}
+              <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+              <span style={{ color: isStarted ? '#10b981' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {startStage}
+              </span>
+          </div>
+      )}
 
       {/* Content */}
       {isOpen && (
