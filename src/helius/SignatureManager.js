@@ -189,12 +189,16 @@ export default class SignatureManager {
     const ready = [];
     for (const [sig, state] of this.signatures.entries()) {
       if (state.hasData && !state.isProcessed) {
-        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData });
+        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData, timestamp: state.timestamp });
       }
     }
-    // 从旧到新（确保交易顺序正确）
+    // 从旧到新：优先用 blockTime（Helius精确时间），slot=0时用 timestamp 兜底
+    // GMGN plugin 来源的 sig slot=0，必须用 timestamp 兜底，否则会排在所有 Helius sig 前面
+    // 导致 recentTrades 中 GMGN 新交易被 Helius 老交易覆盖到末尾
     ready.sort((a, b) => {
-      if (a.slot !== b.slot) return a.slot - b.slot;
+      const tA = a.blockTime > 0 ? a.blockTime * 1000 : (a.timestamp || 0);
+      const tB = b.blockTime > 0 ? b.blockTime * 1000 : (b.timestamp || 0);
+      if (tA !== tB) return tA - tB;
       return a.blockIndex - b.blockIndex;
     });
     return ready;

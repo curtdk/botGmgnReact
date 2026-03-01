@@ -207,8 +207,17 @@ class HeliusIntegration {
 
             dataFlowLogger.log('GMGN-Hook', 'Trades 接收', `${trades.length} 条 | 新增 ${newTradesCount} 条 | 锁定: ${this.lockedMint || '无'}`, { total: trades.length, newCount: newTradesCount, lockedMint: this.lockedMint, currentMint: this.currentMint });
 
+            if (newTradesCount > 0) {
+              const initState = this.monitor.isInitialized ? '实时处理' : '等待初始化完成';
+              this.sendStatusLog(`GMGN Hook: ${trades.length} 条交易 (新增${newTradesCount}) [${initState}]`);
+            }
+
             if (this.monitor.isInitialized && newTradesCount > 0) {
               this.processNewGmgnTrades(newTrades);
+            } else if (!this.monitor.isInitialized && newTradesCount > 0 && this.monitor.onGmgnDataLoaded) {
+              // Hook 拦截到数据，且 Monitor 仍在初始化中（等待 GMGN 信号）
+              // 直接解除并行等待，不必等 EXECUTE_TRADES_REFRESH 发起的分页拉取
+              this.monitor.onGmgnDataLoaded();
             }
           }
         } catch (err) {
@@ -218,10 +227,10 @@ class HeliusIntegration {
     window.addEventListener('HOOK_FETCH_XHR_EVENT', this.hookFetchXhrHandler);
 
     // 监听 GMGN 分页数据加载完成事件
-    this.gmgnTradesLoadedHandler = (event) => {
+    this.gmgnTradesLoadedHandler = (_event) => {
       if (!this.monitor) return;
 
-
+      this.sendStatusLog('GMGN 分页数据加载完成，通知 Monitor...');
       // 通知监控器可以开始批量获取了
       if (this.monitor.onGmgnDataLoaded) {
         this.monitor.onGmgnDataLoaded();
@@ -235,7 +244,7 @@ class HeliusIntegration {
    * 设置消息监听器
    */
   setupMessageListener() {
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       if (request.type === 'HELIUS_MONITOR_TOGGLE') {
         const enabled = request.enabled;
         this.enabled = enabled;
@@ -388,6 +397,7 @@ class HeliusIntegration {
     // 启动新的监控器（不检查开关状态，自动启动）
 
     dataFlowLogger.log('锁定控制', 'Monitor 启动', `检测到 Mint: ${mint.slice(0,8)}...，启动 HeliusMonitor`, { mint, apiEnabled: this.enabled, lockedMint: this.lockedMint });
+    this.sendStatusLog(`检测到代币 ${mint.slice(0, 8)}...，启动 Helius 监控`);
 
     this.currentMint = mint;
     this.monitor = new HeliusMonitor(mint);
@@ -414,6 +424,11 @@ class HeliusIntegration {
       } catch (e) {
         // Extension context 尚未就绪，忽略
       }
+    };
+
+    // 设置状态日志回调（转发到 App.jsx 底部日志面板）
+    this.monitor.onStatusLog = (msg) => {
+      this.sendStatusLog(msg);
     };
 
     // 设置 WebSocket 状态回调
@@ -443,82 +458,22 @@ class HeliusIntegration {
   }
 
   /**
-   * 在控制台显示指标
+   * 发送状态日志到 App.jsx 底部日志面板
+   */
+  sendStatusLog(msg) {
+    try {
+      chrome.runtime.sendMessage({ type: 'HELIUS_STATUS_LOG', message: msg }).catch(() => {});
+    } catch (_e) { /* ignore */ }
+  }
+
+  /**
+   * 在控制台显示指标并推送到 SidePanel
    */
   displayMetrics(metrics, showDetailed = false) {
-
-    // 如果需要详细信息，调用详细打印方法（传入 GMGN 持有者数据）
     if (showDetailed && this.monitor && this.monitor.metricsEngine) {
       this.monitor.metricsEngine.printDetailedMetrics(this.gmgnHolders.size > 0 ? this.gmgnHolders : null);
     }
-
-    // 获取统计信息
-    if (this.monitor) {
-      const stats = this.monitor.getStats();
-
-      // 详细数据源统计
-      const detailedStats = this.getDetailedDataSourceStats();
-
-      // 显示前 20 个 signatures
-      this.displayFirst20Signatures();
-    }
-
-    // 发送消息到 SidePanel
     this.sendMetricsToUI(metrics);
-  }
-
-  /**
-   * 获取详细的数据源统计
-   */
-  getDetailedDataSourceStats() {
-    let heliusCount = 0;
-    let gmgnCount = 0;
-    let noDataCount = 0;
-
-    for (const [sig, state] of this.monitor.signatureManager.signatures.entries()) {
-      if (!state.hasData) {
-        noDataCount++;
-      } else if (state.txData) {
-        if (state.txData.type === 'helius') {
-          heliusCount++;
-        } else if (state.txData.type === 'gmgn') {
-          gmgnCount++;
-        }
-      }
-    }
-
-    return { heliusCount, gmgnCount, noDataCount };
-  }
-
-  /**
-   * 显示前 20 个 signatures 的详细信息
-   */
-  displayFirst20Signatures() {
-
-    const signatures = Array.from(this.monitor.signatureManager.signatures.entries());
-    const first20 = signatures.slice(0, 20);
-
-    first20.forEach(([sig, state], index) => {
-      // Signature 发现来源
-      const discoverySourcesStr = Array.from(state.sources).join(', ');
-
-      // 数据来源
-      let dataSourceStr = 'none';
-      if (state.hasData && state.txData) {
-        if (state.txData.type === 'helius') {
-          dataSourceStr = 'Helius API';
-        } else if (state.txData.type === 'gmgn') {
-          dataSourceStr = 'GMGN 插件';
-        }
-      } else if (!state.hasData) {
-        dataSourceStr = '无数据（待获取）';
-      }
-
-      const hasDataStr = state.hasData ? '✓' : '✗';
-      const isProcessedStr = state.isProcessed ? '✓' : '✗';
-
-    });
-
   }
 
   /**
@@ -850,14 +805,14 @@ class HeliusIntegration {
   /**
    * 更新 holders（暂时保留，但数据应该通过 HeliusMonitor 处理）
    */
-  updateHolders(items) {
+  updateHolders(_items) {
     // 暂时不做任何处理，数据应该通过 HeliusMonitor 来
   }
 
   /**
    * 更新 trades（暂时保留，但数据应该通过 HeliusMonitor 处理）
    */
-  updateTrades(trades) {
+  updateTrades(_trades) {
     // 暂时不做任何处理，数据应该通过 HeliusMonitor 来
     return 0;
   }

@@ -1038,6 +1038,11 @@ const App = () => {
             if (request.message) {
                 addLog(request.message);
             }
+        } else if (request.type === 'HELIUS_STATUS_LOG') {
+            // 接收 Helius 流程状态日志（显示在底部日志面板）
+            if (request.message) {
+                addLog(request.message);
+            }
         } else if (request.type === 'HELIUS_METRICS_UPDATE') {
             // 接收 Helius 指标更新 — 仅接受启动 mint 的数据
             if (!isStartedRef.current) return;
