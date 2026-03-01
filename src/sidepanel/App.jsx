@@ -448,6 +448,10 @@ const App = () => {
   useEffect(() => { isStartedRef.current = isStarted; }, [isStarted]);
   useEffect(() => { startedMintRef.current = startedMint; }, [startedMint]);
 
+  // pageMint ref（供 storage 监听器中读取当前 mint）
+  const pageMintRef = useRef('');
+  useEffect(() => { pageMintRef.current = pageMint; }, [pageMint]);
+
   // 引用管理器实例
   const scoreManagerRef = useRef(null);
 
@@ -560,8 +564,13 @@ const App = () => {
           }
       });
 
-      // 启动 Helius
+      // 启动 Helius 并锁定 mint（告知内容脚本禁止自动切换）
       toggleHeliusMonitor(true);
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'LOCK_MINT', mint: pageMint }).catch(() => {});
+          }
+      });
   };
 
   /** 停止所有处理 */
@@ -576,6 +585,13 @@ const App = () => {
       // 停止定时器
       if (autoUpdateTimer.current) { clearInterval(autoUpdateTimer.current); autoUpdateTimer.current = null; }
       if (tradesUpdateTimer.current) { clearInterval(tradesUpdateTimer.current); tradesUpdateTimer.current = null; }
+
+      // 解锁 mint（告知内容脚本恢复自动监控）
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'UNLOCK_MINT' }).catch(() => {});
+          }
+      });
 
       // 停止 Helius
       toggleHeliusMonitor(false);
@@ -886,17 +902,12 @@ const App = () => {
       console.log('[GMGN App] Init page for mint:', mint);
       addLog(`检测到新代币: ${mint.slice(0,6)}...`);
 
-      // 如果已启动，切换 mint 时自动停止
+      // 已启动时锁定 mint，忽略页面切换
       if (isStartedRef.current) {
-          // 直接重置 ref 和状态（不调用 handleStop 避免循环依赖）
-          isStartedRef.current = false;
-          startedMintRef.current = '';
-          setIsStarted(false);
-          setStartedMint('');
-          setStartStage('就绪');
-          if (autoUpdateTimer.current) { clearInterval(autoUpdateTimer.current); autoUpdateTimer.current = null; }
-          if (tradesUpdateTimer.current) { clearInterval(tradesUpdateTimer.current); tradesUpdateTimer.current = null; }
-          addLog('代币已切换，处理已停止');
+          if (mint !== startedMintRef.current) {
+              addLog(`浏览已切换至 ${mint.slice(0,6)}...，继续处理 ${startedMintRef.current.slice(0,6)}...`);
+          }
+          return;
       }
 
       // 1. 初始化/重置管理器
@@ -919,8 +930,8 @@ const App = () => {
               setHookUrlReady(true);
               addLog(`Hook URL: ✓ 已从缓存恢复，点击开始即可运行`);
           } else {
-              setHookUrlReady(false);
-              addLog(`Hook URL: ⚠ 无缓存，请先刷新 GMGN 页面`);
+              setHookUrlReady(null); // 保持"待检查"，等待 hook 自动写入
+              addLog(`Hook URL: 等待自动检测...`);
           }
       });
 
@@ -963,6 +974,20 @@ const App = () => {
             if (changes.activity_monitor_interval) setActivityMonitorInterval(changes.activity_monitor_interval.newValue);
             if (changes.observer_enabled) setObserverEnabled(changes.observer_enabled.newValue);
             if (changes.observer_interval) setObserverInterval(changes.observer_interval.newValue);
+
+            // 自动检测 hook URL 写入（hook.js → content/index.jsx → storage）
+            const currentMint = pageMintRef.current;
+            if (currentMint && !isStartedRef.current) {
+                const hookKey = `gmgn_hook_url_${currentMint}`;
+                if (changes[hookKey]) {
+                    const newUrl = changes[hookKey].newValue;
+                    if (newUrl && (newUrl.includes('/token_holders') || newUrl.includes('/token_trades'))) {
+                        lastGmgnUrlRef.current = newUrl;
+                        setHookUrlReady(true);
+                        addLog('Hook URL: ✓ 已自动检测到，可以点击开始');
+                    }
+                }
+            }
         }
     };
     chrome.storage.onChanged.addListener(handleStorageChange);
@@ -970,11 +995,14 @@ const App = () => {
     // 3. 监听来自 Content Script 的消息
     const handleMessage = (request, sender, sendResponse) => {
         if (request.type === 'UI_RENDER_DATA') {
-            // [新增] 接收渲染就绪数据 (已在 Content Script 完成去重、聚类、排序)
+            // 接收渲染就绪数据
             if (!isStartedRef.current) return; // 未启动，忽略数据更新
             if (request.data && Array.isArray(request.data)) {
                 // mint 不匹配时跳过（防止旧 mint 数据污染）
-                if (startedMintRef.current && request.url) {
+                // 优先检查消息体中的 mint 字段（HeliusIntegration.sendDataToSidepanel 携带）
+                if (request.mint && startedMintRef.current && request.mint !== startedMintRef.current) return;
+                // 兜底：从 URL 中解析 mint（GMGN Hook 路径携带）
+                if (!request.mint && startedMintRef.current && request.url) {
                     const mintMatch = request.url.match(/token_(?:holders|trades)\/[^/]+\/([^?&/]+)/);
                     if (mintMatch && mintMatch[1] !== startedMintRef.current) return;
                 }
@@ -1027,7 +1055,9 @@ const App = () => {
                 addLog(request.message);
             }
         } else if (request.type === 'HELIUS_METRICS_UPDATE') {
-            // [新增] 接收 Helius 指标更新
+            // 接收 Helius 指标更新 — 仅接受启动 mint 的数据
+            if (!isStartedRef.current) return;
+            if (request.mint && startedMintRef.current && request.mint !== startedMintRef.current) return;
             if (request.metrics) {
                 setHeliusMetrics(request.metrics);
                 if (request.metrics.recentTrades) {
@@ -1041,7 +1071,9 @@ const App = () => {
                 setHeliusMint(request.mint);
             }
         } else if (request.type === 'HELIUS_STATS_UPDATE') {
-            // sig 统计早期更新（fetchInitialSignatures 完成后立即触发）
+            // sig 统计早期更新 — 仅接受启动 mint 的数据
+            if (!isStartedRef.current) return;
+            if (request.mint && startedMintRef.current && request.mint !== startedMintRef.current) return;
             if (request.stats) {
                 setHeliusStats(request.stats);
             }
@@ -1049,7 +1081,8 @@ const App = () => {
                 setHeliusMint(request.mint);
             }
         } else if (request.type === 'HELIUS_METRICS_CLEAR') {
-            // [新增] 清空 Helius 指标
+            // 已启动时忽略清空指令（防止切换 mint 时覆盖锁定 mint 的数据）
+            if (isStartedRef.current) return;
             console.log('[SidePanel] 清空 Helius 指标');
             setHeliusMetrics(null);
             setHeliusStats(null);

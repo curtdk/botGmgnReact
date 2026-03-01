@@ -18,6 +18,7 @@ class HeliusIntegration {
     this.currentMint = null;
     this.isInitialized = false;
     this.enabled = false; // 监控开关状态
+    this.lockedMint = null; // 侧边栏锁定的 mint（非 null 时禁止自动切换）
 
     // 事件处理器引用（用于清理）
     this.hookSignaturesHandler = null;
@@ -152,25 +153,12 @@ class HeliusIntegration {
       try {
         const data = event.detail;
         if (data && data.holders && Array.isArray(data.holders)) {
-          console.log(`[Helius集成] 收到 ${data.holders.length} 个 holder 数据`);
-
-          // 记录日志
-          dataFlowLogger.log(
-            'HeliusIntegration',
-            '接收 GMGN Holder 数据',
-            `从 hook.js 接收到 ${data.holders.length} 个 holder 数据`,
-            { count: data.holders.length, hasMonitor: !!this.monitor }
-          );
+          const hasMonitor = !!this.monitor;
+          dataFlowLogger.log('GMGN-Hook', 'Holders 接收', `${data.holders.length} 个 holder | 锁定: ${this.lockedMint || '无'} | monitor: ${hasMonitor ? '✓' : '✗'}`, { count: data.holders.length, lockedMint: this.lockedMint, currentMint: this.currentMint });
 
           // 如果 monitor 不存在，记录警告
           if (!this.monitor) {
-            console.warn('[Helius集成] Monitor 未启动，无法处理 holder 数据');
-            dataFlowLogger.log(
-              'HeliusIntegration',
-              '数据丢失警告',
-              'HeliusMonitor 未启动，无法处理 holder 数据',
-              { count: data.holders.length }
-            );
+            dataFlowLogger.log('GMGN-Hook', '⚠ 丢弃', 'Monitor 未启动，holder 数据无法处理', { count: data.holders.length });
             return;
           }
 
@@ -178,22 +166,6 @@ class HeliusIntegration {
           this.monitor.setBossConfig(this.bossConfig);
           this.monitor.setScoreThreshold(this.scoreThreshold);
           this.monitor.setStatusThreshold(this.statusThreshold);
-
-          // [调试] 打印第一个 holder 的字段结构
-          if (data.holders.length > 0) {
-            console.log('[HeliusIntegration] 第一个 holder 的字段:', {
-              keys: Object.keys(data.holders[0]),
-              sample: data.holders[0]
-            });
-          }
-
-          // 传递给 HeliusMonitor 并执行评分
-          dataFlowLogger.log(
-            'HeliusIntegration',
-            '传递数据到 HeliusMonitor',
-            `将 ${data.holders.length} 个 holder 传递给 HeliusMonitor.updateHolderData`,
-            { count: data.holders.length }
-          );
 
           await this.monitor.updateHolderData(data.holders);
 
@@ -228,68 +200,26 @@ class HeliusIntegration {
           }
 
           if (trades.length > 0) {
-            console.log(`[Helius集成] 从 token_trades 提取了 ${trades.length} 个交易（包含完整数据）`);
-
-            // 记录日志
-            dataFlowLogger.log(
-              'HeliusIntegration',
-              '接收 GMGN Trade 数据',
-              `从 hook.js 接收到 ${trades.length} 个交易数据`,
-              { count: trades.length, hasMonitor: !!this.monitor }
-            );
-
-            // 如果 monitor 不存在，记录警告
             if (!this.monitor) {
-              console.warn('[Helius集成] Monitor 未启动，无法处理交易数据');
-              dataFlowLogger.log(
-                'HeliusIntegration',
-                '数据丢失警告',
-                'HeliusMonitor 未启动，无法处理交易数据',
-                { count: trades.length }
-              );
+              dataFlowLogger.log('GMGN-Hook', '⚠ 丢弃 Trades', `${trades.length} 个交易，Monitor 未启动 | 锁定: ${this.lockedMint || '无'}`, { count: trades.length });
               return;
             }
 
             let newTradesCount = 0;
             const newTrades = [];
 
-            console.log(`[Helius集成] Hook 事件收到 ${trades.length} 个交易`);
-
             trades.forEach(trade => {
               if (trade.tx_hash) {
-                // 检查是否是新交易
                 const isNew = !this.monitor.signatureManager.signatures.has(trade.tx_hash);
-
-                console.log(`[Helius集成] 交易 ${trade.tx_hash.substring(0, 8)}... isNew=${isNew}`);
-
-                // 记录日志
-                if (isNew) {
-                  dataFlowLogger.log(
-                    'HeliusIntegration',
-                    '传递交易到 HeliusMonitor',
-                    `将新交易 ${trade.tx_hash.substring(0, 8)}... 传递给 HeliusMonitor.signatureManager`,
-                    { signature: trade.tx_hash, source: 'plugin' }
-                  );
-                }
-
-                // 存储完整的 GMGN trade 数据
                 this.monitor.signatureManager.addSignature(trade.tx_hash, 'plugin', trade);
-
-                if (isNew) {
-                  newTradesCount++;
-                  newTrades.push(trade);
-                }
+                if (isNew) { newTradesCount++; newTrades.push(trade); }
               }
             });
 
-            console.log(`[Helius集成] 新交易统计: 总数=${trades.length}, 新交易=${newTradesCount}, isInitialized=${this.monitor.isInitialized}`);
+            dataFlowLogger.log('GMGN-Hook', 'Trades 接收', `${trades.length} 条 | 新增 ${newTradesCount} 条 | 锁定: ${this.lockedMint || '无'}`, { total: trades.length, newCount: newTradesCount, lockedMint: this.lockedMint, currentMint: this.currentMint });
 
-            // 如果系统已初始化且有新交易，立即处理
             if (this.monitor.isInitialized && newTradesCount > 0) {
-              console.log(`[Helius集成] 检测到 ${newTradesCount} 个新交易，立即处理`);
               this.processNewGmgnTrades(newTrades);
-            } else if (newTradesCount === 0) {
-              console.log(`[Helius集成] 没有新交易需要处理（所有交易都已存在）`);
             }
           }
         } catch (err) {
@@ -326,15 +256,32 @@ class HeliusIntegration {
 
         console.log(`[Helius集成] Helius API 调用: ${enabled ? '启用' : '禁用'}`);
 
-        // 不再启动/停止 monitor，只更新开关状态
-        // monitor 会根据 this.enabled 决定是否调用 Helius API
-
         // 通知 monitor 更新开关状态
         if (this.monitor) {
           this.monitor.setHeliusApiEnabled(enabled);
         }
 
         sendResponse({ success: true });
+      }
+
+      // 侧边栏开始：锁定 mint，阻止自动切换
+      if (request.type === 'LOCK_MINT') {
+        this.lockedMint = request.mint || null;
+        dataFlowLogger.log('锁定控制', '锁定 Mint', `侧边栏已启动，锁定 ${this.lockedMint}`, { lockedMint: this.lockedMint });
+        // 若当前监控的 mint 与锁定 mint 不同，先切换过来
+        if (this.lockedMint && this.currentMint !== this.lockedMint) {
+          this.checkAndInitMonitor();
+        }
+        sendResponse({ success: true });
+        return true;
+      }
+
+      // 侧边栏停止：解锁 mint
+      if (request.type === 'UNLOCK_MINT') {
+        dataFlowLogger.log('锁定控制', '解锁 Mint', `侧边栏已停止，解锁（原: ${this.lockedMint}）`, { prevLocked: this.lockedMint });
+        this.lockedMint = null;
+        sendResponse({ success: true });
+        return true;
       }
 
       // 数据流日志开关
@@ -411,11 +358,7 @@ class HeliusIntegration {
       childList: true,
       subtree: true
     });
-
-    // 定期检查（备用）
-    this.checkInterval = setInterval(() => {
-      this.checkAndInitMonitor();
-    }, 5000);
+    // 5s 备用轮询已移除：MutationObserver 足够，lockedMint 守卫防止意外切换
   }
 
   /**
@@ -445,6 +388,12 @@ class HeliusIntegration {
       return;
     }
 
+    // 已锁定 mint 时，禁止自动切换到其他 mint
+    if (this.lockedMint && mint !== this.lockedMint) {
+      dataFlowLogger.log('锁定控制', '忽略切换', `页面切换至 ${mint.slice(0,8)}...，继续锁定 ${this.lockedMint.slice(0,8)}...`, { newMint: mint, lockedMint: this.lockedMint });
+      return;
+    }
+
     // 停止旧的监控器
     if (this.monitor) {
       console.log('[Helius集成] 切换到新 mint，停止旧监控');
@@ -459,13 +408,7 @@ class HeliusIntegration {
     console.log(`[Helius集成] 检测到 Mint: ${mint}`);
     console.log(`${'='.repeat(60)}\n`);
 
-    // 记录日志
-    dataFlowLogger.log(
-      'HeliusIntegration',
-      'HeliusMonitor 自动启动',
-      `检测到 mint 页面，自动启动 HeliusMonitor`,
-      { mint, apiEnabled: this.enabled }
-    );
+    dataFlowLogger.log('锁定控制', 'Monitor 启动', `检测到 Mint: ${mint.slice(0,8)}...，启动 HeliusMonitor`, { mint, apiEnabled: this.enabled, lockedMint: this.lockedMint });
 
     this.currentMint = mint;
     this.monitor = new HeliusMonitor(mint);
@@ -698,19 +641,16 @@ class HeliusIntegration {
    */
   sendMetricsToUI(metrics) {
     try {
-      // 获取统计信息
       const stats = this.monitor ? this.monitor.getStats() : null;
 
-      console.log(`[Helius集成] 发送指标到 UI: totalProcessed=${metrics.totalProcessed}, stats.total=${stats?.total}`);
+      dataFlowLogger.log('UI-发送', 'Metrics 推送', `processed=${metrics.totalProcessed} | 锁定: ${this.lockedMint || '无'}`, { totalProcessed: metrics.totalProcessed, statsTotal: stats?.total, lockedMint: this.lockedMint });
 
-      // 发送消息
       chrome.runtime.sendMessage({
         type: 'HELIUS_METRICS_UPDATE',
         metrics: metrics,
         stats: stats,
         mint: this.currentMint
       }).catch(err => {
-        // 忽略 SidePanel 未打开的错误
         if (!err.message.includes('Receiving end does not exist')) {
           console.error('[Helius集成] 发送消息失败:', err);
         }
@@ -835,54 +775,16 @@ class HeliusIntegration {
     const whaleCount = holdersData.filter(h => h.status === '庄家').length;
     const retailCount = holdersData.filter(h => h.status === '散户').length;
 
-    // 详细日志：显示每个用户的分数
-    const userScores = holdersData.map(h => ({
-      address: h.owner ? h.owner.substring(0, 8) + '...' : 'unknown',
-      score: h.score,
-      status: h.status
-    }));
-
-    console.log('[HeliusIntegration] 发送给 UI 的用户分数详情:', userScores);
-
-    // 记录日志
-    dataFlowLogger.log(
-      'HeliusIntegration',
-      '发送数据到 Sidepanel',
-      `发送 ${holdersData.length} 个过滤后的用户数据到 Sidepanel UI`,
-      {
-        totalUsers: Object.keys(traderStats).length,
-        filteredUsers: holdersData.length,
-        whaleCount: whaleCount,
-        retailCount: retailCount,
-        scoreThreshold: this.monitor.scoreThreshold,
-        userScores: userScores
-      }
-    );
+    dataFlowLogger.log('UI-发送', 'Holders 推送', `${holdersData.length} 用户 (庄家:${whaleCount} 散户:${retailCount}) | 锁定: ${this.lockedMint || '无'}`, { count: holdersData.length, whaleCount, retailCount, lockedMint: this.lockedMint });
 
     // 发送 Chrome 消息给 sidepanel
     chrome.runtime.sendMessage({
       type: 'UI_RENDER_DATA',
       data: holdersData,
-      url: null
-    }).then(() => {
-      console.log(`[HeliusIntegration] ✅ 成功发送数据到 Sidepanel: ${holdersData.length} 个用户 (庄家: ${whaleCount}, 散户: ${retailCount})`);
-
-      dataFlowLogger.log(
-        'HeliusIntegration',
-        'Sidepanel 消息发送成功',
-        `成功发送 ${holdersData.length} 个用户数据`,
-        { success: true }
-      );
-    }).catch(err => {
-      // Sidepanel 可能未打开
-      console.log('[HeliusIntegration] ⚠️ 发送消息到 Sidepanel 失败（可能未打开）:', err.message);
-
-      dataFlowLogger.log(
-        'HeliusIntegration',
-        'Sidepanel 消息发送失败',
-        `无法发送数据到 Sidepanel: ${err.message}`,
-        { error: err.message }
-      );
+      url: null,
+      mint: this.currentMint  // 用于侧边栏 mint 校验
+    }).catch(() => {
+      // Sidepanel 可能未打开，忽略错误
     });
   }
 

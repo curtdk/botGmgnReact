@@ -188,6 +188,7 @@ export default class HeliusMonitor {
         const msg = JSON.parse(event.data);
         if (msg.method === 'logsNotification') {
           const sig = msg.params.result.value.signature;
+          dataFlowLogger.log('Helius-WS', '新 Sig', `${sig.slice(0, 8)}... | mint: ${this.mint.slice(0, 8)}...`, { sig, mint: this.mint });
           this.handleNewSignature(sig, 'websocket');
         }
       } catch (err) {
@@ -238,14 +239,13 @@ export default class HeliusMonitor {
 
     // 记录 Helius 实际获取的 sig 原始总数（缓存 + 新增）
     this.heliusFetchedTotal = allSigs.length;
-    console.log(`[初始化] Helius 获取总数: ${allSigs.length} (缓存=${cachedSigs.length} 新增=${newSigs.length})`);
 
     // 添加所有 signatures 到 SignatureManager
     allSigs.forEach(sig => {
       this.signatureManager.addSignature(sig, 'initial');
     });
 
-    console.log(`[初始化] 添加了 ${allSigs.length} 个 signatures 到管理器`);
+    dataFlowLogger.log('Helius-API', 'Sig 列表', `总计 ${allSigs.length} (缓存=${cachedSigs.length} 新增=${newSigs.length}) | mint: ${this.mint.slice(0, 8)}...`, { total: allSigs.length, cached: cachedSigs.length, newSigs: newSigs.length, mint: this.mint });
 
     // 立即通知 UI sig 总数已就绪
     if (this.onStatsUpdate) {
@@ -388,7 +388,7 @@ export default class HeliusMonitor {
     const stillMissing = this.signatureManager.getMissingSignatures();
 
     if (stillMissing.length > 0) {
-      console.log(`[获取] ${cachedTxs.length} 个来自缓存，${stillMissing.length} 个需要 API`);
+      let fetchedCount = 0;
 
       // 批量获取
       const CHUNK_SIZE = 100;
@@ -409,8 +409,10 @@ export default class HeliusMonitor {
           this.signatureManager.markHasData(sig, tx);
         });
 
-        console.log(`[获取] 进度: ${Math.min(i + CHUNK_SIZE, stillMissing.length)} / ${stillMissing.length}`);
+        fetchedCount += txs.length;
       }
+
+      dataFlowLogger.log('Helius-API', 'Tx 批量拉取', `缓存=${cachedTxs.length} API=${fetchedCount} 共需=${missingSigs.length} | mint: ${this.mint.slice(0, 8)}...`, { cached: cachedTxs.length, fetched: fetchedCount, total: missingSigs.length, mint: this.mint });
     }
   }
 
@@ -820,26 +822,8 @@ export default class HeliusMonitor {
    */
   async updateHolderData(holders) {
     try {
-      console.log('[HeliusMonitor] 更新 holder 数据并执行评分', { holderCount: holders.length });
-
-      // 记录日志
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '开始评分流程',
-        `接收到 ${holders.length} 个 holder，开始执行评分`,
-        { holderCount: holders.length }
-      );
-
       // 1. 将 holder 快照数据合并进 traderStats（用于评分）
       this.metricsEngine.updateUsersInfo(holders);
-      console.log('[HeliusMonitor] 步骤1完成: updateUsersInfo', { traderStatsCount: Object.keys(this.metricsEngine.traderStats).length });
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '步骤1: 更新用户信息',
-        `已更新 ${Object.keys(this.metricsEngine.traderStats).length} 个用户的基础信息`,
-        { traderStatsCount: Object.keys(this.metricsEngine.traderStats).length }
-      );
 
       // 步骤1.5b: 隐藏中转检测
       if (this.bossConfig.enable_hidden_relay) {
@@ -847,22 +831,6 @@ export default class HeliusMonitor {
       }
 
       // 2. 计算分数
-      console.log('[HeliusMonitor] 步骤2开始: calculateScores', {
-        bossConfigKeys: Object.keys(this.bossConfig).length,
-        statusThreshold: this.statusThreshold
-      });
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '步骤2: 开始计算分数',
-        `使用 ScoringEngine 计算分数，配置项: ${Object.keys(this.bossConfig).length} 个`,
-        {
-          bossConfigKeys: Object.keys(this.bossConfig).length,
-          statusThreshold: this.statusThreshold,
-          scoreThreshold: this.scoreThreshold
-        }
-      );
-
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
         this.metricsEngine.traderStats,
@@ -870,51 +838,18 @@ export default class HeliusMonitor {
         this.manualScores,
         this.statusThreshold
       );
-      console.log('[HeliusMonitor] 步骤2完成: calculateScores', { scoreMapSize: scoreMap.size, whaleCount: whaleAddresses.size });
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '步骤2: 分数计算完成',
-        `计算了 ${scoreMap.size} 个用户的分数，识别出 ${whaleAddresses.size} 个庄家`,
-        {
-          scoreMapSize: scoreMap.size,
-          whaleCount: whaleAddresses.size,
-          retailCount: scoreMap.size - whaleAddresses.size
-        }
-      );
 
       // 3. 将分数存储到 traderStats
-      let updatedCount = 0;
       for (const [address, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
           this.metricsEngine.traderStats[address].status = scoreData.status;
-          updatedCount++;
         }
       }
-      console.log('[HeliusMonitor] 步骤3完成: 存储分数', { updatedCount });
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '步骤3: 存储分数到 traderStats',
-        `已将分数存储到 ${updatedCount} 个用户的 traderStats 中`,
-        { updatedCount }
-      );
 
       // 4. 根据 scoreThreshold 过滤用户
       const filteredUsers = this.filterUsersByScore(scoreMap);
-      console.log('[HeliusMonitor] 步骤4完成: 过滤用户', { filteredCount: filteredUsers.size });
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '步骤4: 过滤用户',
-        `根据阈值 ${this.scoreThreshold} 过滤，保留 ${filteredUsers.size} 个用户`,
-        {
-          filteredCount: filteredUsers.size,
-          threshold: this.scoreThreshold
-        }
-      );
 
       // 5. 更新庄家地址列表
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
@@ -924,31 +859,15 @@ export default class HeliusMonitor {
 
       // 7. 重新计算指标
       this.recalculateMetrics();
-      console.log('[HeliusMonitor] 步骤7完成: 重新计算指标');
 
       dataFlowLogger.log(
         'HeliusMonitor',
-        '评分流程完成',
-        `评分流程全部完成，用户数据已更新`,
-        {
-          totalUsers: Object.keys(this.metricsEngine.traderStats).length,
-          whaleCount: whaleAddresses.size,
-          filteredCount: filteredUsers.size
-        }
+        '评分完成',
+        `${holders.length} holders → 庄家:${whaleAddresses.size} 散户:${filteredUsers.size - whaleAddresses.size} | 显示:${filteredUsers.size}`,
+        { holderCount: holders.length, whaleCount: whaleAddresses.size, filteredCount: filteredUsers.size, scoreThreshold: this.scoreThreshold }
       );
     } catch (error) {
       console.error('[HeliusMonitor] updateHolderData 执行失败:', error);
-      console.error('[HeliusMonitor] 错误堆栈:', error.stack);
-
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '评分流程失败',
-        `评分过程中发生错误: ${error.message}`,
-        {
-          error: error.message,
-          stack: error.stack
-        }
-      );
     }
   }
 

@@ -71,7 +71,17 @@ class DataFlowLogger {
 
     // 输出到控制台（带颜色）
     const colors = {
-      'HeliusMonitor': '#10b981',
+      // 数据进入
+      'GMGN-Hook':   '#8b5cf6',  // 紫色 - hook 拦截数据
+      'Helius-WS':   '#06b6d4',  // 青色 - WebSocket 实时数据
+      'Helius-API':  '#3b82f6',  // 蓝色 - Helius RPC API
+      // 数据处理
+      'HeliusMonitor': '#10b981', // 绿色 - 内部评分/计算
+      // 数据输出
+      'UI-发送':     '#f59e0b',  // 橙色 - 发送给 Sidepanel
+      // 控制
+      '锁定控制':    '#ef4444',  // 红色 - mint 锁定/解锁
+      // 兼容旧来源
       'HeliusIntegration': '#3b82f6',
       'contentManager': '#f59e0b',
       'hook.js': '#8b5cf6',
