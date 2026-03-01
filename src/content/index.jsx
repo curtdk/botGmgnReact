@@ -285,6 +285,14 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
     const detail = e.detail;
     if (!detail || !detail.url) return;
 
+    // 提取 mint 并缓存 URL，供 sidepanel 在开始前直接使用
+    if (detail.url.includes('/token_holders') || detail.url.includes('/token_trades')) {
+        const mintMatch = detail.url.match(/token_(?:holders|trades)\/[^/]+\/([^?&/]+)/);
+        if (mintMatch && mintMatch[1]) {
+            chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: detail.url });
+        }
+    }
+
     // 仅处理 token_holders 相关请求
     if (detail.url.includes('/token_holders')) {
         try {

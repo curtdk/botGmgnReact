@@ -761,7 +761,10 @@ const App = () => {
    */
   const runHookRefresh = async () => {
       const url = lastGmgnUrlRef.current;
-      if(!url) return;
+      if (!url) {
+          addLog('Hook URL: 无URL，请刷新 GMGN 页面获取');
+          return;
+      }
       
       console.log('[GMGN App] Requesting Proxy Refresh:', url);
       
@@ -826,12 +829,23 @@ const App = () => {
       scoreManagerRef.current.setMint(mint);
 
       // 2. 重置状态
-      setItems([]); 
-      setStatusLogs(['状态：就绪']); 
-      lastGmgnUrlRef.current = ''; 
+      setItems([]);
+      setStatusLogs(['状态：就绪']);
+      lastGmgnUrlRef.current = '';
       lastTradesUrlRef.current = ''; // 重置 Trades URL
-      setPageMint(mint); 
-      
+      setPageMint(mint);
+
+      // 2.5 从缓存恢复 hook URL（页面未刷新时可直接使用）
+      chrome.storage.local.get([`gmgn_hook_url_${mint}`], (res) => {
+          const cachedUrl = res[`gmgn_hook_url_${mint}`];
+          if (cachedUrl && (cachedUrl.includes('/token_holders') || cachedUrl.includes('/token_trades'))) {
+              lastGmgnUrlRef.current = cachedUrl;
+              addLog(`Hook URL: 已从缓存恢复，可直接开始`);
+          } else {
+              addLog(`Hook URL: 无缓存，请先刷新 GMGN 页面获取`);
+          }
+      });
+
       // 3. 触发刷新
       if (apiRefreshEnabledRef.current) {
           handleFullRefresh(false);
@@ -887,8 +901,11 @@ const App = () => {
                 if (request.url) {
                     if (request.url.includes('/token_holders')) {
                         lastGmgnUrlRef.current = request.url;
+                        // 持久化到 storage，供下次开始前直接使用
+                        if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
                     } else if (request.url.includes('/token_trades')) {
                         lastTradesUrlRef.current = request.url;
+                        if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
                     }
                 }
 
