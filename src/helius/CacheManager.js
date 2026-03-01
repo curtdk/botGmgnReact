@@ -450,6 +450,35 @@ export default class CacheManager {
   }
 
   /**
+   * 批量加载用户完整记录（含评分、中转检测结果等所有字段）
+   * @param {string[]} addresses
+   * @returns {Object} { address: userRecord }
+   */
+  async loadUsersData(addresses) {
+    if (!this.db) await this.init();
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['users'], 'readonly');
+      const store = tx.objectStore('users');
+      const results = {};
+      let pending = addresses.length;
+
+      if (pending === 0) { resolve({}); return; }
+
+      tx.onerror = () => reject(tx.error);
+
+      addresses.forEach(address => {
+        const request = store.get(address);
+        request.onsuccess = () => {
+          if (request.result) results[address] = request.result;
+          if (--pending === 0) resolve(results);
+        };
+        request.onerror = () => { if (--pending === 0) resolve(results); };
+      });
+    });
+  }
+
+  /**
    * 批量加载隐藏中转检测结果
    * @returns {Object} { address: { isRelay, conditions, checkedAt } }
    */

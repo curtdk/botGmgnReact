@@ -849,17 +849,28 @@ export default class HeliusMonitor {
         try { chrome.runtime.sendMessage({ type: 'LOG', message: msg }).catch(() => {}); } catch (_e) { /* ignore */ }
       };
 
-      // 从 IndexedDB 批量加载已检测过的缓存（替代 chrome.storage 批量 get）
-      const cached = await this.cacheManager.loadHiddenRelayResults(allUsers);
+      // 单次批量读取 users 表（含评分、中转检测结果等全部字段）
+      const existingUsers = await this.cacheManager.loadUsersData(allUsers);
 
-      const unchecked = allUsers.filter(u => !cached[u]);
+      // 跳过条件：
+      //  1. 已有隐藏中转检测结果（hiddenRelayCheckedAt 存在）
+      //  2. 已有评分记录（上次已完整处理过，不再做慢速 sig 翻页）
+      const unchecked = allUsers.filter(u => {
+        const ud = existingUsers[u];
+        if (ud?.hiddenRelayCheckedAt) return false; // 已检测过（无论是否中转）
+        if (ud?.score !== undefined) return false;  // 已有评分 → 跳过，视为已分类
+        return true;
+      });
 
-      // 恢复已缓存的结果到 userInfo
+      // 恢复已缓存状态到 userInfo
       for (const u of allUsers) {
-        if (cached[u]) {
-          userInfo[u].has_hidden_relay = cached[u].isRelay;
-          userInfo[u].hidden_relay_conditions = cached[u].conditions;
+        const ud = existingUsers[u];
+        if (ud?.hiddenRelayCheckedAt) {
+          // 有中转检测结果 → 直接恢复
+          userInfo[u].has_hidden_relay = ud.hiddenRelay;
+          userInfo[u].hidden_relay_conditions = ud.hiddenRelayConditions || [];
         }
+        // 有评分但无中转检测：has_hidden_relay 保持默认 false，评分体系已覆盖
       }
 
       if (unchecked.length === 0) {
