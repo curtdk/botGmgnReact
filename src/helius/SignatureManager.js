@@ -189,7 +189,7 @@ export default class SignatureManager {
     const ready = [];
     for (const [sig, state] of this.signatures.entries()) {
       if (state.hasData && !state.isProcessed) {
-        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData, timestamp: state.timestamp });
+        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData, timestamp: state.timestamp, createdAt: state.createdAt });
       }
     }
     // 从旧到新：优先用 blockTime（Helius精确时间），slot=0时用 timestamp 兜底
@@ -199,7 +199,12 @@ export default class SignatureManager {
       const tA = a.blockTime > 0 ? a.blockTime * 1000 : (a.timestamp || 0);
       const tB = b.blockTime > 0 ? b.blockTime * 1000 : (b.timestamp || 0);
       if (tA !== tB) return tA - tB;
-      return a.blockIndex - b.blockIndex;
+      // 同时间：GMGN sig（slot=0）由 GMGN API 插入，API 返回顺序为最新在前
+      // 所以较老的 sig 反而 createdAt 较大（后插入），用 createdAt DESC 确保老 sig 先处理
+      // MetricsEngine 用 unshift，先处理 = 最终在 recentTrades 末尾，符合"旧在下"预期
+      if (a.slot === 0 && b.slot === 0) return (b.createdAt || 0) - (a.createdAt || 0);
+      // Helius sig 同 blockTime：按 blockIndex ASC（区块内顺序）
+      return (a.blockIndex || 0) - (b.blockIndex || 0);
     });
     return ready;
   }
@@ -255,7 +260,6 @@ export default class SignatureManager {
 
   endWaitPeriod() {
     this.isWaiting = false;
-    const duration = Date.now() - this.waitStartTime;
   }
 
   // ─────────────────────────────────────────────────────────

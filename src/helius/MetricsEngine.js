@@ -401,26 +401,59 @@ export default class MetricsEngine {
 
   printMetrics() {
     const m = this.getMetrics();
+    dataFlowLogger.log('持仓', '汇总指标',
+      `本轮下注=${m.benLunXiaZhu.toFixed(4)} 本轮成本=${m.benLunChengBen.toFixed(4)} 已落袋=${m.yiLuDai.toFixed(4)} 浮盈亏=${m.floatingPnL.toFixed(4)} SOL\n` +
+      `活跃持仓=${m.activeCount}人 已退出=${m.exitedCount}人 跳过庄家=${m.skippedWhaleCount}笔`,
+      { benLunXiaZhu: m.benLunXiaZhu, benLunChengBen: m.benLunChengBen, yiLuDai: m.yiLuDai, floatingPnL: m.floatingPnL, activeCount: m.activeCount, exitedCount: m.exitedCount }
+    );
   }
 
   printDetailedMetrics() {
+    const traders = Object.entries(this.traderStats);
+    if (traders.length === 0) return;
 
-    Object.entries(this.traderStats).forEach(([address, stats]) => {
-      const s = `${address.slice(0, 4)}...${address.slice(-4)}`;
+    let holdingCount = 0, historicalCount = 0;
+    const userLines = [];
 
-      if (stats.completedRounds.length > 0) {
-        stats.completedRounds.forEach((r, i) => {
-        });
+    traders.forEach(([address, stats]) => {
+      const s = `${address.slice(0, 4)}..${address.slice(-4)}`;
+      const cr  = stats.currentRound;
+      const hist = stats.completedRounds || [];
+      const isHolding = cr.buySOL > 0 || cr.txCount > 0;
+
+      if (isHolding) holdingCount++;
+      if (hist.length > 0) historicalCount++;
+
+      // 只记录有实际交易记录的用户
+      if (!isHolding && hist.length === 0) return;
+
+      let line = `${s}`;
+
+      // 历史持仓轮次
+      if (hist.length > 0) {
+        const histDetail = hist.map((r, i) =>
+          `历史轮${i + 1}[buy=${r.buySOL.toFixed(4)} sell=${r.sellSOL.toFixed(4)} net=${r.netFlow.toFixed(4)}]`
+        ).join(' ');
+        line += ` | ${histDetail} 历史净流水=${stats.totalHistoricalNetFlow.toFixed(4)}SOL`;
       }
 
-      const r = stats.currentRound;
-      if (r.buySOL > 0 || r.txCount > 0) {
-        const netCost = r.buySOL - r.sellSOL;
+      // 当前持仓
+      if (isHolding) {
+        const net = cr.buySOL - cr.sellSOL;
+        line += ` | 当前持仓: buy=${cr.buySOL.toFixed(4)} sell=${cr.sellSOL.toFixed(4)} net=${net.toFixed(4)}SOL txCount=${cr.txCount}`;
       } else {
+        line += ` | 当前无持仓`;
       }
+
+      userLines.push(line);
     });
 
-    const m = this.getMetrics();
+    if (userLines.length > 0) {
+      dataFlowLogger.log('持仓', '用户记录',
+        `活跃用户=${holdingCount} 有历史轮次=${historicalCount} 共 ${userLines.length} 人有记录:\n` + userLines.join('\n'),
+        { holdingCount, historicalCount, total: userLines.length }
+      );
+    }
   }
 
   // ─────────────────────────────────────────────────────────

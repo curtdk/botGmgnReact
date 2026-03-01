@@ -64,6 +64,9 @@ export default class HeliusMonitor {
     this.lastVerifyTime = null;
     this._verifyIntervalMs = 30000; // 初始30s，动态调整
     this._verifyMissCount = 0;      // 连续0次遗漏计数（用于放宽间隔）
+
+    // 实时 sig 流（初始化完成后的所有新 sig，含 hasData=false 的待处理条目）
+    this.sigFeed = [];
   }
 
   // ─────────────────────────────────────────────────────────
@@ -74,6 +77,41 @@ export default class HeliusMonitor {
     if (this.onStatusLog) {
       try { this.onStatusLog(`[Helius] ${msg}`); } catch (_e) { /* ignore */ }
     }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // sigFeed 实时流 helpers
+  // ─────────────────────────────────────────────────────────
+
+  /** 新 sig 到达时立即加入 feed（pending 状态） */
+  _addSigToFeed(sig, source) {
+    if (this.sigFeed.some(e => e.sig === sig)) return;
+    this.sigFeed.unshift({ sig, source, hasData: false, action: null, address: null, solAmount: null, tokenAmount: null, rawTimestamp: Date.now(), label: null });
+    if (this.sigFeed.length > 150) this.sigFeed.length = 150;
+  }
+
+  /** 处理完成后用 MetricsEngine recentTrades[0] 更新 feed 条目 */
+  _updateSigFeed(sig) {
+    const entry = this.sigFeed.find(e => e.sig === sig);
+    if (!entry) return;
+    const trade = this.metricsEngine.recentTrades[0];
+    if (trade?.signature === sig) {
+      entry.hasData   = true;
+      entry.action    = trade.action;
+      entry.address   = trade.address;
+      entry.solAmount = trade.solAmount;
+      entry.tokenAmount = trade.tokenAmount;
+      entry.rawTimestamp = trade.rawTimestamp;
+      entry.label     = trade.label;
+    }
+  }
+
+  /** 统一触发 onMetricsUpdate，自动附带 sigFeed */
+  _fireMetricsUpdate() {
+    if (!this.onMetricsUpdate || this.isStopped) return;
+    const metrics = this.metricsEngine.getMetrics();
+    metrics.sigFeed = this.sigFeed.slice(0, 100);
+    this.onMetricsUpdate(metrics);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -119,12 +157,37 @@ export default class HeliusMonitor {
       await this.performInitialCalculation();
       if (this.isStopped) throw new Error('Stopped');
 
+      // 7.5 补全初始化期间 WS 推入但 hasData=false 的 sig（init 窗口桥接）
+      //     场景：步骤7运行期间 WS 推来新 sig，handleNewSignature 因 !isInitialized 直接 return，
+      //     sig 留在 SignatureManager(hasData=false)，若不在此处补全则永久丢失。
+      const wsGapSigs = this.signatureManager.getMissingSignatures();
+      if (wsGapSigs.length > 0) {
+        this._log(`桥接 init 窗口: 补全 ${wsGapSigs.length} 条 WS 期间遗漏 sig...`);
+        await this.fetchMissingTransactions();
+        if (this.isStopped) throw new Error('Stopped');
+        // 处理刚补全的 sig
+        const bridgeSigs = this.signatureManager.getReadySignatures();
+        if (bridgeSigs.length > 0) {
+          this._log(`桥接 init 窗口: 处理 ${bridgeSigs.length} 条补全交易...`);
+          for (const item of bridgeSigs) {
+            if (this.isStopped) return;
+            this.metricsEngine.processTransaction(item.txData, this.mint);
+            this.signatureManager.markProcessed(item.sig);
+          }
+        }
+      }
+      if (this.isStopped) throw new Error('Stopped');
+
       // 8. 进入实时模式
       this.isInitialized = true;
       this._log('初始化完成，进入实时模式 ✓');
 
-      // 9. 启动动态 verify
-      this._scheduleNextVerify();
+      // 9. 启动动态 verify，首次使用大窗口（500条）桥接整个 init 时间段可能漏掉的链上 sig
+      //    正常 verify 用 50/200，但 init 期间可能积累大量 sig，首次必须拉更宽
+      this._verifyMissCount = 1; // 触发 200 条窗口（不足500，故下面单独处理）
+      this.verifySignatures(500).finally(() => {
+        if (!this.isStopped) this._scheduleNextVerify();
+      });
 
     } catch (error) {
       if (!this.isStopped) throw error;
@@ -132,24 +195,62 @@ export default class HeliusMonitor {
   }
 
   /**
-   * 早期发布：GMGN 数据到来后立即处理已有数据的 sig，
-   * 不等 fetchMissingTransactions 完成，让实时交易列表尽快出现
+   * 早期发布：GMGN 数据到来后立即向 UI 展示交易列表（仅预览，不进 MetricsEngine 累计）
+   *
+   * 为什么不在这里调用 MetricsEngine？
+   *   GMGN hook 只包含近期 N 条交易，而 Helius 历史 sig 可能更老。
+   *   若先处理近期再处理历史（step7 performInitialCalculation），MetricsEngine 的累计顺序就是
+   *   "新 → 旧"，导致持仓轮次（currentRound / completedRounds）错乱，4大参数全错。
+   *
+   *   正确做法：GMGN sigs 保持 isProcessed=false，等 step7 把全部 sig 按
+   *   slot/timestamp 从旧到新统一处理一遍，顺序才正确。
+   *
+   *   此函数只负责给 UI 快速展示 recentTrades 列表（仅界面效果，不影响指标正确性）。
    */
   async _earlyPublishGmgnTrades() {
     const readyNow = this.signatureManager.getReadySignatures();
     if (readyNow.length === 0 || this.isStopped) return;
 
-    this._log(`GMGN 数据已到，提前处理 ${readyNow.length} 条可用交易...`);
+    this._log(`GMGN 数据已到，提前展示 ${readyNow.length} 条交易列表（指标等全量数据后统一计算）...`);
 
-    this.metricsEngine.setTotalTransactions(readyNow.length);
+    // ── 验证日志：GMGN 初始顺序（从旧→新 timestamp 排序，slot=0 代表无 Helius 链上数据）──
+    const orderLines = readyNow.map((item, idx) => {
+      const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('zh-CN') : '无ts';
+      const src = item.txData?.type || 'unknown';
+      return `[${idx + 1}] ${item.sig.slice(0, 8)}... ts=${ts} slot=${item.slot} src=${src}`;
+    }).join('\n');
+    dataFlowLogger.log('验证-GMGN', 'GMGN初始顺序',
+      `共 ${readyNow.length} 条（从旧→新，slot=0 表示仅有 GMGN 时间戳，无 Helius 链上顺序）:\n${orderLines}`,
+      { count: readyNow.length, sigs: readyNow.map(i => ({ sig: i.sig.slice(0, 8), ts: i.timestamp, slot: i.slot })) }
+    );
+
+    // 仅构建预览 recentTrades 给 UI 展示（不调用 processTransaction，不改变 traderStats）
+    // 不 markProcessed → performInitialCalculation 会按正确顺序重新处理这些 sig
+    const previewTrades = [];
     for (const item of readyNow) {
-      if (this.isStopped) return;
-      this.metricsEngine.processTransaction(item.txData, this.mint);
-      this.signatureManager.markProcessed(item.sig);
+      const td = item.txData;
+      if (!td) continue;
+      if (td.type === 'gmgn') {
+        const t = td.data;
+        if (!t || (t.event !== 'buy' && t.event !== 'sell')) continue;
+        previewTrades.unshift({
+          signature: t.tx_hash,
+          address: t.maker,
+          action: t.event === 'buy' ? '买入' : '卖出',
+          tokenAmount: Math.abs(parseFloat(t.base_amount || 0)),
+          solAmount: Math.abs(parseFloat(t.quote_amount || 0)),
+          rawTimestamp: t.timestamp ? t.timestamp * 1000 : Date.now(),
+          label: null,
+          preview: true   // 标记为预览数据，后续 performInitialCalculation 会覆盖
+        });
+      }
     }
 
-    if (this.onMetricsUpdate && !this.isStopped) {
-      this.onMetricsUpdate(this.metricsEngine.getMetrics());
+    if (previewTrades.length > 0 && this.onMetricsUpdate && !this.isStopped) {
+      // 发送仅含预览 recentTrades 的空指标（4大参数全0，等全量计算后再更新）
+      const emptyMetrics = this.metricsEngine.getMetrics();
+      emptyMetrics.recentTrades = previewTrades;
+      this.onMetricsUpdate(emptyMetrics);
     }
   }
 
@@ -207,9 +308,6 @@ export default class HeliusMonitor {
 
     const stats = this.signatureManager.getStats();
     this._log(`Helius 历史 sig 获取完成: 新增=${fetchResult.totalNew} 缓存=${fetchResult.totalCached} 共=${stats.total}`);
-    dataFlowLogger.log('Helius-API', 'Sig 列表', `总计 ${stats.total} (新增=${fetchResult.totalNew} 缓存=${fetchResult.totalCached}) | mint: ${this.mint.slice(0, 8)}...`,
-      { total: stats.total, newSigs: fetchResult.totalNew, cached: fetchResult.totalCached, mint: this.mint }
-    );
   }
 
   /**
@@ -279,9 +377,10 @@ export default class HeliusMonitor {
       try {
         const msg = JSON.parse(event.data);
         if (msg.method === 'logsNotification') {
-          const sig = msg.params.result.value.signature;
-          dataFlowLogger.log('Helius-WS', '新 Sig', `${sig.slice(0, 8)}... | mint: ${this.mint.slice(0, 8)}...`, { sig, mint: this.mint });
-          this.handleNewSignature(sig, 'websocket');
+          const value = msg.params.result.value;
+          // 跳过链上失败的交易（err 不为 null）
+          if (value.err !== null && value.err !== undefined) return;
+          this.handleNewSignature(value.signature, 'websocket');
         }
       } catch (err) {
       }
@@ -351,9 +450,6 @@ export default class HeliusMonitor {
     }
 
     this._log(`Tx 补全完成: 缓存=${cachedTxs.length} API=${fetchedCount}`);
-    dataFlowLogger.log('Helius-API', 'Tx 补全', `缓存=${cachedTxs.length} API=${fetchedCount} 共需=${missingSigs.length} | mint: ${this.mint.slice(0, 8)}...`,
-      { cached: cachedTxs.length, fetched: fetchedCount, total: missingSigs.length }
-    );
   }
 
   // ─────────────────────────────────────────────────────────
@@ -377,12 +473,19 @@ export default class HeliusMonitor {
       this.signatureManager.markProcessed(item.sig);
     }
 
+    // ── 验证日志：数据源覆盖 ──
+    const stats = this.signatureManager.getStats();
+    dataFlowLogger.log('验证', '数据源覆盖',
+      `总sig=${stats.total} 已有数据=${stats.hasData} 已处理=${stats.isProcessed} 缺失tx=${stats.needFetch}\n` +
+      `数据来源: GMGN插件=${stats.byDataSource.plugin} Helius=${stats.byDataSource.api} 缓存=${stats.byDataSource.cache} WS=${stats.byDataSource.websocket}\n` +
+      `Sig来源: initial=${stats.bySources.initial} plugin=${stats.bySources.plugin} ws=${stats.bySources.websocket} verify=${stats.bySources.verify}`,
+      { stats }
+    );
+
     this.metricsEngine.printMetrics();
     this.metricsEngine.printDetailedMetrics();
 
-    if (this.onMetricsUpdate && !this.isStopped) {
-      this.onMetricsUpdate(this.metricsEngine.getMetrics());
-    }
+    this._fireMetricsUpdate();
   }
 
   // ─────────────────────────────────────────────────────────
@@ -395,6 +498,11 @@ export default class HeliusMonitor {
     this.signatureManager.addSignature(sig, source);
 
     if (this.isWaitingForGmgn || !this.isInitialized) return;
+
+    // 立即加入 sigFeed（pending 状态，hasData=false），触发 UI 即时显示占位条目
+    this._addSigToFeed(sig, source);
+    this._fireMetricsUpdate();
+
     if (this.signatureManager.isProcessedSig(sig)) return;
 
     if (!this.signatureManager.hasData(sig)) {
@@ -413,16 +521,14 @@ export default class HeliusMonitor {
     if (state?.hasData && !state.isProcessed) {
       this.metricsEngine.processTransaction(state.txData, this.mint);
       this.signatureManager.markProcessed(sig);
-      // 同步更新 IndexedDB sig 状态
       this.cacheManager.updateSigStatus(sig, { isProcessed: true }).catch(() => {});
 
       this.metricsEngine.printMetrics();
 
-      if (this.onMetricsUpdate && !this.isStopped) {
-        this.onMetricsUpdate(this.metricsEngine.getMetrics());
-      }
+      // sigFeed 条目升级为已处理状态
+      this._updateSigFeed(sig);
+      this._fireMetricsUpdate();
 
-      // 检查是否需要快速评分
       const txAddr = state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
       if (txAddr && this.metricsEngine.traderStats[txAddr]?.score === undefined) {
         this._scheduleQuickScore();
@@ -446,18 +552,21 @@ export default class HeliusMonitor {
     }, interval);
   }
 
-  async verifySignatures() {
+  async verifySignatures(overrideLimit = 0) {
     if (this.isStopped) return;
     const startTime = Date.now();
 
     try {
-      // 动态拉取数量：默认50条，有遗漏时拉200条
-      const fetchLimit = this._verifyMissCount > 0 ? 200 : 50;
+      // 动态拉取数量：默认50条，有遗漏时拉200条；首次 init 后传入 500 做大窗口桥接
+      const fetchLimit = overrideLimit > 0 ? overrideLimit : (this._verifyMissCount > 0 ? 200 : 50);
       const latestSigs = await this.dataFetcher.fetchLatestSigsForVerify(this.mint, fetchLimit);
       if (this.isStopped) return;
 
       let newCount = 0;
       const newSigsToFetch = [];
+      // 用于顺序验证：记录 GMGN sig 被 Helius slot 更新时的异常
+      const orderIssues = [];
+      let slotUpdatedCount = 0;
 
       latestSigs.forEach(rawSig => {
         const sig = rawSig.signature;
@@ -467,14 +576,49 @@ export default class HeliusMonitor {
           newSigsToFetch.push(sig);
           newCount++;
         } else {
-          // 已有的 sig，补充/更新 slot 信息（用于顺序验证）
+          // ── 顺序验证：读取旧状态，对比 Helius 补充的 slot ──
+          const before = this.signatureManager.getState(sig);
+          const oldSlot = before ? before.slot : -1;
+          const oldTs   = before ? before.timestamp : 0;
+
           this.signatureManager.updateSigOrder(sig, rawSig.slot, rawSig.blockTime);
+
+          // 仅对之前 slot=0（GMGN/WS来源）的 sig 做时序验证
+          if (oldSlot === 0 && rawSig.slot > 0 && rawSig.blockTime > 0 && oldTs > 0) {
+            slotUpdatedCount++;
+            const heliusTs = rawSig.blockTime * 1000;
+            const diffSec  = Math.abs(heliusTs - oldTs) / 1000;
+            // 超过 5 分钟认为时序异常（GMGN 时间戳与链上时间差距太大）
+            if (diffSec > 300) {
+              orderIssues.push({
+                sig: sig.slice(0, 8),
+                gmgnTs: new Date(oldTs).toLocaleTimeString('zh-CN'),
+                heliusTs: new Date(heliusTs).toLocaleTimeString('zh-CN'),
+                diffSec: diffSec.toFixed(0)
+              });
+            }
+          }
+
           // 同时更新 IndexedDB
           this.cacheManager.saveSig(this.mint, sig, {
             slot: rawSig.slot, blockTime: rawSig.blockTime, source: 'helius'
           }).catch(() => {});
         }
       });
+
+      // ── 输出顺序验证结果 ──
+      if (orderIssues.length > 0) {
+        dataFlowLogger.log('验证⚠', 'Sig时序异常',
+          `${orderIssues.length}/${slotUpdatedCount} 条 GMGN sig 的时间戳与 Helius blockTime 相差 >5min:\n` +
+          orderIssues.map(i => `  ${i.sig}... GMGN_ts=${i.gmgnTs} → Helius_ts=${i.heliusTs} 差=${i.diffSec}s ⚠`).join('\n'),
+          { issues: orderIssues, slotUpdatedCount }
+        );
+      } else if (slotUpdatedCount > 0) {
+        dataFlowLogger.log('验证', 'Sig时序验证',
+          `${slotUpdatedCount} 条 GMGN sig 获得 Helius slot 信息，时序全部对齐 ✓`,
+          { slotUpdatedCount }
+        );
+      }
 
       // 动态调整间隔
       if (newCount === 0) {
@@ -501,9 +645,7 @@ export default class HeliusMonitor {
         }
 
         this._log(`Verify: 处理完成 ${txs.length} 条新交易`);
-        if (this.onMetricsUpdate && !this.isStopped) {
-          this.onMetricsUpdate(this.metricsEngine.getMetrics());
-        }
+        this._fireMetricsUpdate();
       }
 
       this.lastVerifyTime = Date.now();
@@ -553,6 +695,7 @@ export default class HeliusMonitor {
 
     if (this.signatureManager) this.signatureManager.clear();
     if (this.metricsEngine) this.metricsEngine.reset();
+    this.sigFeed = [];
     if (this.cacheManager) {
       try { this.cacheManager.close(); } catch (_e) { /* ignore */ }
     }
@@ -596,10 +739,6 @@ export default class HeliusMonitor {
       this.metricsEngine.setFilteredUsers(filteredUsers);
       this.recalculateMetrics();
 
-      dataFlowLogger.log('HeliusMonitor', '评分完成',
-        `${holders.length} holders → 庄家:${whaleAddresses.size} 过滤后:${filteredUsers.size}`,
-        { holderCount: holders.length, whaleCount: whaleAddresses.size, filteredCount: filteredUsers.size }
-      );
     } catch (error) {
     }
   }
@@ -627,8 +766,7 @@ export default class HeliusMonitor {
   }
 
   recalculateMetrics() {
-    const metrics = this.metricsEngine.getMetrics();
-    if (this.onMetricsUpdate) this.onMetricsUpdate(metrics);
+    this._fireMetricsUpdate();
   }
 
   // ─────────────────────────────────────────────────────────

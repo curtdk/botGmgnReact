@@ -202,13 +202,16 @@ const UserListItem = React.memo(({
 });
 
 // 实时交易列表组件
-function RecentTradesList({ trades, minScore, metricsUnit, solUsdtPrice }) {
-    if (!trades || trades.length === 0) return null;
+function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice }) {
+    // pending 条目：sigFeed 中还没有 tx 数据的 sig（最新到达，尚未被 MetricsEngine 处理）
+    const pendingEntries = (sigFeed || []).filter(s => !s.hasData);
+
+    if ((!trades || trades.length === 0) && pendingEntries.length === 0) return null;
 
     // 按 score 过滤：有分数且 >= minScore 的屏蔽；无分数或分数 < minScore 的保留
     const visibleTrades = minScore > 0
-        ? trades.filter(t => t.score === undefined || t.score < minScore)
-        : trades;
+        ? (trades || []).filter(t => t.score === undefined || t.score < minScore)
+        : (trades || []);
 
     const timeAgo = (ts) => {
         const diff = Math.floor((Date.now() - ts) / 1000);
@@ -283,6 +286,22 @@ function RecentTradesList({ trades, minScore, metricsUnit, solUsdtPrice }) {
             </div>
             {/* 交易行 */}
             <div style={{ maxHeight: '280px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
+                {/* Pending 条目：sig 已到达但 tx 数据尚未获取 */}
+                {pendingEntries.map((s) => (
+                    <div key={s.sig} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '2px 6px',
+                        fontSize: '11px',
+                        color: '#4b5563',
+                        borderBottom: '1px solid #111827',
+                        backgroundColor: '#0a0e16',
+                    }}>
+                        <span style={{ width: '30px', flexShrink: 0, color: '#374151' }}>{Math.floor((Date.now() - s.rawTimestamp) / 1000)}s</span>
+                        <span style={{ width: '36px', flexShrink: 0, color: '#374151' }}>···</span>
+                        <span style={{ flex: 1, color: '#374151', fontFamily: 'monospace', fontSize: '10px' }}>{s.sig.slice(0, 8)}… 待获取</span>
+                    </div>
+                ))}
                 {visibleTrades.map((t, i) => {
                     const isBuy = t.action === '买入';
                     const isPending = t.score === undefined;
@@ -383,6 +402,7 @@ const App = () => {
   const [heliusStats, setHeliusStats] = useState(null);
   const [heliusMint, setHeliusMint] = useState(null);
   const [recentTrades, setRecentTrades] = useState([]);
+  const [sigFeed, setSigFeed] = useState([]);
   const [heliusMonitorEnabled, setHeliusMonitorEnabled] = useState(false); // Helius 监控开关
   const [heliusWsStatus, setHeliusWsStatus] = useState({
     connected: false,
@@ -1052,6 +1072,9 @@ const App = () => {
                 if (request.metrics.recentTrades) {
                     setRecentTrades(request.metrics.recentTrades);
                 }
+                if (request.metrics.sigFeed) {
+                    setSigFeed(request.metrics.sigFeed);
+                }
             }
             if (request.stats) {
                 setHeliusStats(request.stats);
@@ -1572,7 +1595,7 @@ const App = () => {
           </div>
 
           {/* 实时交易列表 */}
-          <RecentTradesList trades={recentTrades} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} />
+          <RecentTradesList trades={recentTrades} sigFeed={sigFeed} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} />
 
           {/* List Header */}
           <div style={styles.listHeader}>

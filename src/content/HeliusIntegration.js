@@ -205,11 +205,20 @@ class HeliusIntegration {
               }
             });
 
-            dataFlowLogger.log('GMGN-Hook', 'Trades 接收', `${trades.length} 条 | 新增 ${newTradesCount} 条 | 锁定: ${this.lockedMint || '无'}`, { total: trades.length, newCount: newTradesCount, lockedMint: this.lockedMint, currentMint: this.currentMint });
-
             if (newTradesCount > 0) {
               const initState = this.monitor.isInitialized ? '实时处理' : '等待初始化完成';
               this.sendStatusLog(`GMGN Hook: ${trades.length} 条交易 (新增${newTradesCount}) [${initState}]`);
+
+              // 验证日志：GMGN Hook 新增交易顺序（按 GMGN timestamp 从旧→新）
+              const sortedNew = [...newTrades].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+              const orderLines = sortedNew.map((t, i) => {
+                const ts = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString('zh-CN') : '?';
+                return `[${i + 1}] ${(t.tx_hash || '').slice(0, 8)}... ts=${ts} event=${t.event || '?'} sol=${parseFloat(t.quote_amount || 0).toFixed(4)}`;
+              }).join('\n');
+              dataFlowLogger.log('验证-GMGN', 'Hook新增交易',
+                `新增 ${newTradesCount}/${trades.length} 条（从旧→新，slot=0等待Helius verify补充）:\n${orderLines}`,
+                { newCount: newTradesCount, total: trades.length, sigs: sortedNew.map(t => ({ sig: (t.tx_hash || '').slice(0, 8), ts: t.timestamp, event: t.event })) }
+              );
             }
 
             if (this.monitor.isInitialized && newTradesCount > 0) {
@@ -485,14 +494,24 @@ class HeliusIntegration {
     }
 
 
-    // 按时间排序（从旧到新）
-    trades.sort((a, b) => a.timestamp - b.timestamp);
+    // 按时间排序（从旧到新），确保 MetricsEngine unshift 后最新交易在顶部
+    // 同一时间戳内：用 SignatureManager.createdAt DESC 作为 tie-breaker
+    // GMGN 以最新在前的顺序插入 addSignature，故最新 sig 的 createdAt 最小，最旧的最大
+    // createdAt DESC = 最旧优先处理 = unshift 后最新在顶 ✓
+    const sortedTrades = [...trades].sort((a, b) => {
+      const tDiff = (a.timestamp || 0) - (b.timestamp || 0);
+      if (tDiff !== 0) return tDiff;
+      // 同时间戳：按 SignatureManager 中的 createdAt DESC（最旧的 createdAt 最大）
+      const stateA = this.monitor.signatureManager.getState(a.tx_hash);
+      const stateB = this.monitor.signatureManager.getState(b.tx_hash);
+      return (stateB?.createdAt || 0) - (stateA?.createdAt || 0);
+    });
 
     let processedCount = 0;
     let skippedCount = 0;
 
-    // 逐个处理
-    trades.forEach(trade => {
+    // 逐个处理（使用排序后的 sortedTrades，确保同秒内最旧的先处理）
+    sortedTrades.forEach(trade => {
       const sig = trade.tx_hash;
 
       // 检查是否已处理
