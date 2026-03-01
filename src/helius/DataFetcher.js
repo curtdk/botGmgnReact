@@ -41,7 +41,6 @@ export default class DataFetcher {
         });
 
         if (response.status === 429) {
-          console.warn(`[RPC] 429 限流，${delay}ms 后重试...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           retries--;
@@ -54,7 +53,6 @@ export default class DataFetcher {
 
         if (data.error) {
           if (data.error.code === -32429) {
-            console.warn(`[RPC] JSON-RPC 限流，${delay}ms 后重试...`);
             await new Promise(r => setTimeout(r, delay));
             delay *= 2;
             retries--;
@@ -67,10 +65,8 @@ export default class DataFetcher {
 
       } catch (error) {
         if (retries === 1) {
-          console.error(`[RPC] 方法 ${method} 最终失败:`, error.message);
           throw error;
         }
-        console.warn(`[RPC] 网络错误 (${method}): ${error.message}，重试...`);
         await new Promise(r => setTimeout(r, delay));
         delay *= 2;
         retries--;
@@ -126,7 +122,6 @@ export default class DataFetcher {
    * @returns {{ totalNew: number, totalCached: number }}
    */
   async fetchHistorySigsStreaming(address, onPage) {
-    console.log(`[历史] 流式获取 sig 列表 (${address.slice(0, 8)}...)...`);
 
     // 1. 从 IndexedDB 读最新 sig（用于增量拉取的 until 参数）
     let untilSig = null;
@@ -136,7 +131,6 @@ export default class DataFetcher {
       if (latest) {
         untilSig = latest.signature;
         cachedCount = (await this.cacheManager.loadSigsByMint(address)).length;
-        console.log(`[缓存] 已有 ${cachedCount} 条 sig，增量拉取 until: ${untilSig.slice(0, 8)}...`);
       }
     }
 
@@ -174,13 +168,10 @@ export default class DataFetcher {
 
       // 批量存 IndexedDB（异步，不阻塞下一页拉取）
       if (this.cacheManager && successSigs.length > 0) {
-        this.cacheManager.saveSigBatch(address, successSigs, 'helius').catch(e =>
-          console.warn('[DataFetcher] 保存 sig 批次失败:', e.message)
-        );
+        this.cacheManager.saveSigBatch(address, successSigs, 'helius').catch(() => {});
       }
 
       if (pageIndex % 5 === 0) {
-        console.log(`[历史] 已获取 ${pageIndex} 页 (新增 ${totalNew} 条)...`);
       }
 
       if (isLast) {
@@ -191,7 +182,6 @@ export default class DataFetcher {
       }
     }
 
-    console.log(`[历史] 流式获取完成 | 新增=${totalNew} 缓存=${cachedCount}`);
     return { totalNew, totalCached: cachedCount };
   }
 
@@ -200,7 +190,6 @@ export default class DataFetcher {
    * （HeliusMonitor 旧调用路径，逐步迁移后可移除）
    */
   async fetchHistorySigs(address) {
-    console.log(`[历史] 获取 sig 列表 (${address.slice(0, 8)}...)...`);
 
     let cachedSigs = [];
     if (this.cacheManager) {
@@ -209,7 +198,6 @@ export default class DataFetcher {
 
     let untilSig = cachedSigs.length > 0 ? cachedSigs[cachedSigs.length - 1] : null;
     if (untilSig) {
-      console.log(`[缓存] 发现 ${cachedSigs.length} 条缓存，增量拉取 until: ${untilSig.slice(0, 8)}...`);
     }
 
     let before = null;
@@ -232,13 +220,11 @@ export default class DataFetcher {
       pageCount++;
 
       if (pageCount % 5 === 0) {
-        console.log(`  [增量] ${pageCount} 页... (新增 ${successSigs.length})`);
       }
 
       if (rawPage.length < 1000) hasMore = false;
     }
 
-    console.log(`[历史] 新增 sig: ${newRawSigs.length} 条`);
 
     // 新 sig 从新到旧 → 反转为从旧到新，与缓存合并
     newRawSigs.reverse();
@@ -249,7 +235,6 @@ export default class DataFetcher {
     if (this.cacheManager && newRawSigs.length > 0) {
       // 存带元数据的完整记录（但此时 blockIndex 不准，后续 verify 会补充）
       await this.cacheManager.saveSigBatch(address, newRawSigs.reverse(), 'helius');
-      console.log(`[历史] 已持久化 sig 列表: ${allSigs.length} 条`);
     }
 
     return { allSigs, newSigs: newSigStrings, cachedSigs };
@@ -281,15 +266,12 @@ export default class DataFetcher {
 
           if (result && mintAddress && this.cacheManager) {
             // 异步缓存，不阻塞主流程
-            this.cacheManager.saveTransaction(sig, mintAddress, result).catch(e =>
-              console.warn(`[DataFetcher] 缓存交易失败 ${sig.slice(0, 8)}:`, e.message)
-            );
+            this.cacheManager.saveTransaction(sig, mintAddress, result).catch(() => {});
             // 同步更新 sig 的 hasData 状态
             this.cacheManager.updateSigStatus(sig, { hasData: true }).catch(() => {});
           }
           return result;
         } catch (err) {
-          console.error(`[DataFetcher] 获取交易失败 ${sig.slice(0, 8)}:`, err.message);
           return null;
         }
       }));

@@ -232,7 +232,6 @@ export default class SignatureManager {
 
     const changed = entry.slot !== slot || entry.blockIndex !== blockIndex;
     if (changed) {
-      console.log(`[SignatureManager] 顺序更新 ${sig.slice(0, 8)}... slot: ${entry.slot}→${slot} blockIdx: ${entry.blockIndex}→${blockIndex}`);
       entry.slot = slot;
       entry.blockTime = blockTime;
       entry.blockIndex = blockIndex;
@@ -248,13 +247,11 @@ export default class SignatureManager {
   startWaitPeriod() {
     this.isWaiting = true;
     this.waitStartTime = Date.now();
-    console.log('[SignatureManager] 开始等待期...');
   }
 
   endWaitPeriod() {
     this.isWaiting = false;
     const duration = Date.now() - this.waitStartTime;
-    console.log(`[SignatureManager] 等待期结束，耗时 ${(duration / 1000).toFixed(1)} 秒`);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -308,11 +305,9 @@ export default class SignatureManager {
         removed++;
       }
     }
-    if (removed > 0) console.log(`[SignatureManager] 清理 ${removed} 个旧 sig`);
   }
 
   clear() {
-    console.log('[SignatureManager] 清理所有数据...');
     this.signatures.clear();
     Object.values(this.sources).forEach(s => s.clear());
     this.cumulativeInitialCount = 0;
@@ -320,6 +315,5 @@ export default class SignatureManager {
     this.waitStartTime = null;
     this.fetchLock = false;
     this.onDataReceived = null;
-    console.log('[SignatureManager] 数据清理完成');
   }
 }

@@ -11,7 +11,6 @@ export default class ObserverFeature {
 
     log(msg) {
         if (this.onLog) this.onLog(msg);
-        console.log(`[ObserverFeature] ${msg}`);
     }
 
     // 仅用于更新参数

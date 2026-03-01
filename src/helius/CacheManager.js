@@ -24,20 +24,17 @@ export default class CacheManager {
       const request = indexedDB.open(this.dbName, this.dbVersion);
 
       request.onerror = () => {
-        console.error('[CacheManager] 打开数据库失败:', request.error);
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log('[CacheManager] 数据库初始化成功 v2');
         resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         const oldVersion = event.oldVersion;
-        console.log(`[CacheManager] 数据库升级 v${oldVersion} → v${this.dbVersion}`);
 
         // === transactions store（保持不变）===
         if (!db.objectStoreNames.contains('transactions')) {
@@ -55,20 +52,17 @@ export default class CacheManager {
         // 复合索引：按mint+slot查询（用于排序验证）
         sigStore.createIndex('mint_slot', ['mint', 'slot'], { unique: false });
         sigStore.createIndex('slot', 'slot', { unique: false });
-        console.log('[CacheManager] 创建 signatures store v2');
 
         // === users store（新增）===
         if (!db.objectStoreNames.contains('users')) {
           const userStore = db.createObjectStore('users', { keyPath: 'address' });
           userStore.createIndex('mint', 'mint', { unique: false });
           userStore.createIndex('status', 'status', { unique: false });
-          console.log('[CacheManager] 创建 users store');
         }
 
         // === mint_meta store（新增）===
         if (!db.objectStoreNames.contains('mint_meta')) {
           db.createObjectStore('mint_meta', { keyPath: 'mint' });
-          console.log('[CacheManager] 创建 mint_meta store');
         }
       };
     });
@@ -266,7 +260,6 @@ export default class CacheManager {
       const request = store.put({ signature, mint, txData, timestamp: Date.now() });
       request.onsuccess = () => resolve();
       request.onerror = () => {
-        console.error('[CacheManager] 保存交易失败:', request.error);
         reject(request.error);
       };
     });
@@ -311,7 +304,6 @@ export default class CacheManager {
           if (request.result) results.push(request.result.txData);
           pending--;
           if (pending === 0) {
-            console.log(`[CacheManager] 从缓存加载了 ${results.length}/${signatures.length} 个交易`);
             resolve(results);
           }
         };
@@ -563,7 +555,6 @@ export default class CacheManager {
     if (this.db) {
       this.db.close();
       this.db = null;
-      console.log('[CacheManager] 数据库已关闭');
     }
   }
 }

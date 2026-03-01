@@ -27,7 +27,6 @@ const safeSendResponse = (sendResponse, data) => {
     } catch (error) {
         // 忽略连接断开的错误
         if (!error.message.includes('disconnected port') && !error.message.includes('Receiving end does not exist')) {
-            console.warn('[GMGN Content] Failed to send response:', error);
         }
     }
 };
@@ -40,7 +39,6 @@ const safeSendMessage = async (msg) => {
     }
     try {
         await chrome.runtime.sendMessage(msg);
-        console.log('[GMGN Content] Sending message type:', msg.type);
     } catch (err) {
         // 忽略特定的连接错误（如 Side Panel 未打开）
         if (err.message.includes('Receiving end does not exist')) {
@@ -62,8 +60,7 @@ const injectHookScript = () => {
       script.src = chrome.runtime.getURL('hook.js');
       script.onload = () => script.remove();
       (document.head || document.documentElement).appendChild(script);
-      console.log('[GMGN Content] Hook script injected');
-    } catch (e) { console.warn('Hook injection failed', e); }
+    } catch (e) { }
 };
 
 // 立即注入 Hook
@@ -161,7 +158,6 @@ const scanPageData = () => {
                     // 更新本地缓存以避免重复处理
                     shortNameCache.set(address, extracted.shortAddr);
                     
-                    console.log(`[GMGN Observer] Found new remark for ${address.slice(0,4)}: ${extracted.shortAddr}`);
                     
                     // 标记需要刷新 UI
                     shouldRefreshUI = true;
@@ -217,7 +213,6 @@ const setupPageObserver = () => {
         flowerMarker.setEnabled(observerEnabled);
 
         if (!observerEnabled) {
-            console.log('[GMGN Observer] Disabled');
             return;
         }
 
@@ -226,7 +221,6 @@ const setupPageObserver = () => {
         if (targetNode) {
             pageObserver = new MutationObserver(() => schedulePageScan());
             pageObserver.observe(targetNode, { childList: true, subtree: true, characterData: true });
-            console.log('[GMGN Observer] Started & Attached to .g-table-body');
             
             // [新增] 发送监听成功状态
             safeSendMessage({
@@ -239,7 +233,6 @@ const setupPageObserver = () => {
             schedulePageScan();
         } else {
             // 如果还没加载出来，稍后重试 (类似 Price Observer 的重试逻辑)
-            console.log('[GMGN Observer] Target not found, retrying in 2s...');
             
             // [新增] 发送监听失败状态
             safeSendMessage({
@@ -277,7 +270,6 @@ let lastCapturedData = null;
  */
 window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
     // 增加详细的调试日志
-    console.log('%c[GMGN Content] Received HOOK event:', 'color: green; font-weight: bold;', e.detail?.url);
 
     // 首先检查上下文是否有效
     if (!isContextValid()) return;
@@ -303,7 +295,6 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
             const items = normalize(json);
             
             if (items && items.length > 0) {
-                console.log(`[GMGN Content] 监听到 HOOK_FETCH_XHR_EVENT 更新 Captured ${items.length} items from hook`);
                 
                 // 1. 更新本地 Manager (基准数据)
                 // contentManager.updateHolders(items);
@@ -328,13 +319,11 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
                 // markTradeUsers();
             }
         } catch (err) {
-            console.error('[GMGN Content] Failed to parse hook data', err);
         }
     } 
     // [新增] 处理 token_trades 相关请求
     else if (detail.url.includes('/token_trades')) {
         try {
-            console.log(`[GMGN Content] /token_trades from token_trades`);
 
             if (!detail.responseBody) return;
             const json = JSON.parse(detail.responseBody);
@@ -343,7 +332,6 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
             const trades = json.data?.history || json.data || json; // 兼容不同结构
             
             if (trades && (Array.isArray(trades) || trades.length > 0)) {
-                console.log(`[GMGN Content] 监听到 HOOK_FETCH_XHR_EVENT 更新 Captured ${trades.length} trades from token_trades`);
                 
                 // 1. 更新本地 Manager (增量数据)
                 // contentManager.updateTrades(trades);
@@ -359,7 +347,6 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
                 markTradeUsers();
             }
         } catch (err) {
-            console.error('[GMGN Content] Failed to parse trades data', err);
         }
     }
     // [新增] 处理 get_remark_info 相关请求
@@ -368,10 +355,8 @@ window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
         chrome.storage.local.get(['auto_sync_remarks'], (res) => {
             if (res.auto_sync_remarks) {
                 if (isFetchingRemarks) {
-                    console.log('[GMGN Content] Remark sync already in progress, skipping hook trigger.');
                     return;
                 }
-                console.log('[GMGN Content] Hook triggered remark sync...');
                 // [修改] 传递 requestHeaders
                 fetchFullRemarks(detail.url, detail.requestHeaders);
             }
@@ -412,7 +397,6 @@ const fetchFullRemarks = async (initialUrl, headers = {}) => {
         // 保持相对路径
         currentUrl = tempUrl.pathname + tempUrl.search;
     } catch (e) {
-        console.warn('[GMGN Content] Failed to set limit param:', e);
     }
 
     try {
@@ -426,7 +410,6 @@ const fetchFullRemarks = async (initialUrl, headers = {}) => {
                 currentUrl = u.pathname + u.search;
             }
 
-            console.log(`[GMGN Content] Fetching remarks page ${page}...`, currentUrl);
 
             const res = await fetch(currentUrl, {
                 method: 'GET',
@@ -436,7 +419,6 @@ const fetchFullRemarks = async (initialUrl, headers = {}) => {
             const json = await res.json();
 
             if (json.code !== 0 || !json.data) {
-                console.warn('[GMGN Content] Remark fetch failed:', json);
                 break;
             }
 
@@ -469,7 +451,6 @@ const fetchFullRemarks = async (initialUrl, headers = {}) => {
 
         } while (nextCursor);
 
-        console.log(`[GMGN Content] Remark sync completed. Total: ${count}`);
         
         // 通知完成
         safeSendMessage({
@@ -485,7 +466,6 @@ const fetchFullRemarks = async (initialUrl, headers = {}) => {
         });
 
     } catch (err) {
-        console.error('[GMGN Content] Remark sync failed:', err);
         safeSendMessage({
             type: 'LOG',
             message: `备注同步失败: ${err.message}`,
@@ -523,7 +503,6 @@ const updatePrice = () => {
     // 只要价格有变化（包括变成0，或者从0变成非0），都推送
     // 并且如果是首次（lastPrice=0），也推送
     if (price !== lastPrice) {
-        console.log(`[GMGN Content] Price changed: ${lastPrice} -> ${price}`);
         lastPrice = price;
         safeSendMessage({
             type: 'PRICE_UPDATE',
@@ -546,12 +525,10 @@ const setupPriceObserver = () => {
     const target = findPriceDOM();
     if (target) {
         // [Debug] 打印找到的 DOM 文本预览，确认是否是新页面的元素
-        console.log('[GMGN Content] Price DOM target found. Text preview:', (target.textContent || '').slice(0, 50).trim());
 
         priceObserver = new MutationObserver(updatePrice);
         priceObserver.observe(target, { subtree: true, characterData: true, childList: true });
         updatePrice(); // 立即检查一次
-        console.log('[GMGN Content] Price observer started');
         
         // [新增] 发送监听成功状态
         safeSendMessage({
@@ -561,7 +538,6 @@ const setupPriceObserver = () => {
         });
     } else {
         // 如果 DOM 尚未准备好，延迟重试
-        console.log('[GMGN Content] Price DOM not found, retrying...');
         
         // [新增] 发送监听失败状态
         safeSendMessage({
@@ -635,7 +611,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     else if (msg.type === 'TAB_URL_CHANGED') {
         const mint = msg.mint;
         if (mint && mint !== lastMint) {
-            console.log('[GMGN Content] TAB_URL_CHANGED: Mint changed:', mint);
             lastMint = mint;
             hasFetchedFullTradesHistory = false; // 重置全量获取标记
             currentTradesTaskMint = null; // [新增] 使旧任务失效
@@ -676,9 +651,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 priceObserver = null;
             }
             
-            console.log('[GMGN Content] Waiting for DOM render (1.5s)...');
             setTimeout(() => {
-                console.log('[GMGN Content] Restarting observers after delay...');
                 setupPriceObserver();
                 setupPageObserver();
                 
@@ -691,14 +664,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // [新增] 处理手动标记分数
     else if (msg.type === 'SET_MANUAL_SCORE') {
         const { address, status } = msg;
-        console.log('[GMGN Content] SET_MANUAL_SCORE 接收到请求', { address, status });
 
         // 通知 HeliusIntegration 设置手动标记
         if (window.__heliusIntegration) {
             window.__heliusIntegration.setManualScore(address, status);
             sendResponse({ success: true });
         } else {
-            console.warn('[GMGN Content] window.__heliusIntegration 不存在');
             sendResponse({ success: false, error: 'HeliusIntegration not found' });
         }
     }
@@ -730,7 +701,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
         }
 
-        console.log('[GMGN Content] EXECUTE_HOOK_REFRESH 接收到请求', { url });
 
         // 使用页面环境的 fetch，自带 Cookie 和同源权限
         fetch(url, {
@@ -745,14 +715,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 const json = JSON.parse(text);
 
                 // 调试日志：显示 API 响应结构
-                console.log('[GMGN Content] API 响应结构:', {
-                    hasData: !!json.data,
-                    hasDataList: !!json.data?.list,
-                    hasList: !!json.list,
-                    isDataArray: Array.isArray(json.data),
-                    isArray: Array.isArray(json),
-                    keys: Object.keys(json).slice(0, 5)
-                });
 
                 // 复用现有的 HOOK_DATA 通道回传数据
                 // 这样 Side Panel 的处理逻辑不用变
@@ -761,16 +723,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 let items = null;
                 if (json.data && Array.isArray(json.data.list)) {
                     items = json.data.list;
-                    console.log('[GMGN Content] 使用 json.data.list 结构');
                 } else if (Array.isArray(json.data)) {
                     items = json.data;
-                    console.log('[GMGN Content] 使用 json.data 结构');
                 } else if (Array.isArray(json.list)) {
                     items = json.list;
-                    console.log('[GMGN Content] 使用 json.list 结构');
                 } else if (Array.isArray(json)) {
                     items = json;
-                    console.log('[GMGN Content] 使用 json 结构（直接数组）');
                 }
 
                 // [修复] 使用 normalize 函数统一字段名
@@ -786,14 +744,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     });
                 }
 
-                console.log('[GMGN Content] 解析结果:', {
-                    itemCount: items ? items.length : 0,
-                    firstItemKeys: items && items[0] ? Object.keys(items[0]).slice(0, 10) : null,
-                    firstItemOwner: items && items[0] ? items[0].owner : null
-                });
 
                 if (items && Array.isArray(items) && items.length > 0) {
-                    console.log('[GMGN Content] 开始处理 holder 数据', { count: items.length });
 
                     // 只调用 HeliusIntegration,不再调用 contentManager
                     // 转发 holder 数据给 HeliusIntegration
@@ -805,28 +757,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
                     // 更新 Helius 集成的持有者列表
                     if (window.__heliusIntegration) {
-                        console.log('[GMGN Content] 调用 updateGmgnHolders', { holderCount: items.length });
                         window.__heliusIntegration.updateGmgnHolders(items);
                     } else {
-                        console.warn('[GMGN Content] window.__heliusIntegration 不存在');
                     }
 
-                    console.log(`[GMGN Content] Proxy fetch success: ${items.length} items (Merged)`);
                     sendResponse({ success: true, count: items.length });
                 } else {
-                    console.warn('[GMGN Content] 没有有效的 holder 数据', {
-                        items: items,
-                        jsonKeys: Object.keys(json)
-                    });
                     sendResponse({ success: false, error: 'No valid holder data' });
                 }
             } catch (e) {
-                console.error('[GMGN Content] Proxy fetch parse error', e);
                 sendResponse({ success: false, error: e.message });
             }
         })
         .catch(err => {
-            console.error('[GMGN Content] Proxy fetch failed', err);
             sendResponse({ success: false, error: err.message });
         });
         return true; // 保持通道开启
@@ -837,16 +780,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             contentManager.setStatus(owner, status);
             // 异步持久化，不阻塞响应
             contentManager.saveStatus();
-            console.log(`[GMGN Content] Status synced via message: ${owner} -> ${status}`);
             sendResponse({ success: true });
         }
     } else if (msg.type === 'EXECUTE_TRADES_REFRESH') {
         const requestTime = new Date().toISOString();
-        console.log(`[GMGN Content] ========== EXECUTE_TRADES_REFRESH received at ${requestTime} ==========`);
 
         // [新增] 并发锁检查
         if (isFetchingTrades) {
-            console.log('[GMGN Content] ❌ EXECUTE_TRADES_REFRESH ignored (already fetching)');
             sendResponse({ success: false, error: 'Already fetching' });
             return;
         }
@@ -854,7 +794,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // [新增] 代理获取 Trades 数据
         const url = msg.url;
         if (!url) {
-            console.log('[GMGN Content] ❌ No URL provided');
             sendResponse({ success: false, error: 'No URL provided' });
             return;
         }
@@ -862,13 +801,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // [新增] 绑定当前任务到当前 Mint
         const currentMint = getMintFromPage();
         if (!currentMint) {
-            console.log('[GMGN Content] ❌ No mint found on page');
             sendResponse({ success: false, error: 'No mint on page' });
             return;
         }
 
-        console.log(`[GMGN Content] ✓ Starting trades fetch for mint: ${currentMint.slice(0, 8)}...`);
-        console.log(`[GMGN Content] ✓ URL: ${url}`);
 
         // 加锁
         isFetchingTrades = true;
@@ -887,17 +823,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 // [修复] 在开始前再次检查 mint 是否仍然匹配
                 const startMint = getMintFromPage();
                 if (currentTradesTaskMint !== startMint) {
-                    console.log('[GMGN Content] Trades fetch aborted before start (Mint changed).');
                     return;
                 }
 
-                console.log(`[GMGN Content] Starting trades fetch for mint: ${currentTradesTaskMint}`);
 
                 do {
                     // [修复] 检查任务是否过期 (Mint 已切换) - 使用实时获取的 mint
                     const pageMint = getMintFromPage();
                     if (currentTradesTaskMint !== pageMint) {
-                        console.log(`[GMGN Content] Trades fetch aborted (Mint changed from ${currentTradesTaskMint} to ${pageMint}).`);
                         break;
                     }
 
@@ -912,7 +845,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         await sleep(1000);
                     }
 
-                    console.log(`[GMGN Content] 📄 Fetching trades page ${pageCount + 1}...`);
 
                     // 2. 发起请求
                     const res = await fetch(currentUrl, {
@@ -944,12 +876,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         if (window.__heliusIntegration) {
                             newCount = window.__heliusIntegration.processFetchedTrades(trades) || 0;
                         } else {
-                            console.warn('[GMGN Content] window.__heliusIntegration 不存在，trades 数据丢失');
                         }
                         markTradeUsers();
                     }
 
-                    console.log(`[GMGN Content] ✓ Page ${pageCount + 1} fetched: ${trades.length} trades. Next: ${nextCursor ? 'YES' : 'NO'}`);
 
                     // [新增] 发送进度消息给 SidePanel (仅从第二页开始)
                     if (pageCount > 0) {
@@ -981,30 +911,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
                     // 调试日志：如果重叠但因为是首次同步而继续
                     if (isOverlap && !hasFetchedFullTradesHistory) {
-                        console.log(`[GMGN Content] Overlap detected but continuing (First Sync). New: ${newCount}/${trades.length}`);
                     }
                     
                     // [新增] 调试日志：如果是最后一组数据（无论是翻页结束还是因重叠停止），打印详细数据
                     // if (!nextCursor || shouldStopByOverlap) {
                     //     console.log(`[GMGN Content] Last batch details (Reason: ${!nextCursor ? 'End of Pages' : 'Overlap Detected'}). Count: ${trades.length}, New: ${newCount}`, trades);
                     // }
-                    console.log(`[GMGN Content] Last batch details (Reason: ${!nextCursor ? 'End of Pages' : 'Overlap Detected'}). Count: ${trades.length}, New: ${newCount}`, trades);
 
 
                     if (shouldStopByOverlap) {
-                        console.log(`[GMGN Content] Overlap detected (new: ${newCount}, total: ${trades.length}). Stopping.`);
                         break; 
                     }
 
                 } while (nextCursor);
 
                 // [新增] 完成日志
-                console.log(`[GMGN Content] ========== Trades fetch completed: ${pageCount} pages ==========`);
 
                 // 标记全量历史已获取
                 if (!hasFetchedFullTradesHistory) {
                     hasFetchedFullTradesHistory = true;
-                    console.log('[GMGN Content] Full trades history synced (first time).');
                 }
 
                 // [修复] 总是分发 GMGN 分页数据加载完成事件，不管是否首次
@@ -1012,10 +937,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 window.dispatchEvent(new CustomEvent('GMGN_TRADES_LOADED', {
                     detail: { mint: currentMint }
                 }));
-                console.log('[GMGN Content] Dispatched GMGN_TRADES_LOADED event');
 
             } catch (err) {
-                console.error('[GMGN Content] ❌ Proxy trades fetch failed:', err);
                 if (pageCount === 0) {
                     // 只有当任务仍然有效时，才发送错误响应
                     if (currentTradesTaskMint === getMintFromPage()) {
@@ -1025,7 +948,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             } finally {
                 // [新增] 释放锁
                 isFetchingTrades = false;
-                console.log(`[GMGN Content] ========== Trades fetch ended, lock released ==========`);
             }
         })();
 
@@ -1039,7 +961,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 window.addEventListener('HELIUS_DATA_UPDATE', (event) => {
   const { holders, statusMap } = event.detail;
 
-  console.log(`[GMGN Content] 收到 HeliusMonitor 数据: ${holders.length} 个用户`);
 
   // 更新 contentManager
   if (contentManager) {
@@ -1059,7 +980,6 @@ window.addEventListener('HELIUS_DATA_UPDATE', (event) => {
       statusMap: statusMap
     });
 
-    console.log(`[GMGN Content] contentManager 已更新: ${contentManager.dataMap.size} 个用户`);
   }
 });
 
@@ -1072,4 +992,3 @@ let hasFetchedFullTradesHistory = false; // 标记是否已获取全量历史
 
 // const mintCheckTimer = setInterval(() => { ... }); // 移除轮询定时器
 
-console.log('[GMGN Content] Service initialized (Headless Mode)');

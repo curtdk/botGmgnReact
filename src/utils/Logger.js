@@ -20,9 +20,7 @@ class DataFlowLogger {
     try {
       const result = await chrome.storage.local.get('data_flow_logger_enabled');
       this.enabled = result.data_flow_logger_enabled || false;
-      console.log(`[数据流日志] 日志系统: ${this.enabled ? '启用' : '禁用'}`);
     } catch (err) {
-      console.error('[数据流日志] 加载设置失败:', err);
     }
   }
 
@@ -33,13 +31,11 @@ class DataFlowLogger {
     this.enabled = enabled;
     try {
       await chrome.storage.local.set({ data_flow_logger_enabled: enabled });
-      console.log(`[数据流日志] 日志系统: ${enabled ? '启用' : '禁用'}`);
 
       if (enabled) {
         this.log('系统', '日志启用', '数据流日志系统已启用');
       }
     } catch (err) {
-      console.error('[数据流日志] 保存设置失败:', err);
     }
   }
 
@@ -89,12 +85,6 @@ class DataFlowLogger {
     };
 
     const color = colors[source] || '#ffffff';
-    console.log(
-      `%c[数据流日志] ${logEntry.time} [${source}] ${event}`,
-      `color: ${color}; font-weight: bold`,
-      details,
-      data || ''
-    );
   }
 
   /**
@@ -109,7 +99,6 @@ class DataFlowLogger {
    */
   clear() {
     this.logs = [];
-    console.log('[数据流日志] 日志已清空');
   }
 
   /**

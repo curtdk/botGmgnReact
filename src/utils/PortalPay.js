@@ -29,7 +29,6 @@ const PortalPay = {
             "pool": pool
         };
 
-        console.log('[PortalPay] Sending request:', payload);
 
         const response = await fetch(`https://pumpportal.fun/api/trade?api-key=${apiKey}`, {
             method: "POST",
@@ -110,7 +109,6 @@ const PortalPay = {
         const line = `[${time}] ${msg}`;
         this._strategy.logs.push(line);
         if (this._strategy.onLog) this._strategy.onLog(line);
-        console.log('[PortalStrategy]', msg);
     },
 
     /**

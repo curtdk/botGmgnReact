@@ -43,7 +43,6 @@ class HeliusIntegration {
     this.statusThreshold = 50; // 状态判断阈值
     this.apiKey = ''; // Helius API Key
 
-    console.log('[Helius集成] 初始化...');
     this.init();
   }
 
@@ -82,7 +81,6 @@ class HeliusIntegration {
 
       // 如果 Chrome Storage 中没有配置,保存默认配置
       if (!res.boss_config) {
-        console.log('[Helius集成] 首次初始化,保存默认配置');
         chrome.storage.local.set({ boss_config: defaultConfig });
       }
 
@@ -93,12 +91,6 @@ class HeliusIntegration {
       // 加载手动标记数据
       this.manualStatusMap = res[`manual_scores_${currentMint}`] || {};
 
-      console.log('[Helius集成] 开关状态:', this.enabled ? '启用' : '禁用');
-      console.log('[Helius集成] Score< 阈值:', this.scoreThreshold);
-      console.log('[Helius集成] 状态判断阈值:', this.statusThreshold);
-      console.log('[Helius集成] Boss配置:', this.bossConfig);
-      console.log('[Helius集成] Boss配置键数量:', Object.keys(this.bossConfig).length);
-      console.log('[Helius集成] 手动标记数量:', Object.keys(this.manualStatusMap).length);
 
       dataFlowLogger.log(
         'HeliusIntegration',
@@ -127,7 +119,6 @@ class HeliusIntegration {
     // 监听配置变化
     this.setupConfigListener();
 
-    console.log('[Helius集成] 已就绪，等待 mint 页面...');
   }
 
   /**
@@ -140,7 +131,6 @@ class HeliusIntegration {
 
       if (!this.monitor) return;
 
-      console.log(`[Helius集成] 收到 ${signatures.length} 个 signatures (来源: ${source})`);
 
       signatures.forEach(sig => {
         this.monitor.signatureManager.addSignature(sig, source);
@@ -173,7 +163,6 @@ class HeliusIntegration {
           this.sendDataToSidepanel();
         }
       } catch (err) {
-        console.error('[Helius集成] 处理 holder 数据失败:', err);
       }
     };
     window.addEventListener('HOOK_HOLDERS_EVENT', this.hookHolderHandler);
@@ -223,7 +212,6 @@ class HeliusIntegration {
             }
           }
         } catch (err) {
-          console.error('[Helius集成] 解析 token_trades 失败:', err);
         }
       }
     };
@@ -233,7 +221,6 @@ class HeliusIntegration {
     this.gmgnTradesLoadedHandler = (event) => {
       if (!this.monitor) return;
 
-      console.log('[Helius集成] 收到 GMGN 分页数据加载完成通知');
 
       // 通知监控器可以开始批量获取了
       if (this.monitor.onGmgnDataLoaded) {
@@ -242,7 +229,6 @@ class HeliusIntegration {
     };
     window.addEventListener('GMGN_TRADES_LOADED', this.gmgnTradesLoadedHandler);
 
-    console.log('[Helius集成] Hook 事件监听已设置');
   }
 
   /**
@@ -254,7 +240,6 @@ class HeliusIntegration {
         const enabled = request.enabled;
         this.enabled = enabled;
 
-        console.log(`[Helius集成] Helius API 调用: ${enabled ? '启用' : '禁用'}`);
 
         // 通知 monitor 更新开关状态
         if (this.monitor) {
@@ -349,7 +334,6 @@ class HeliusIntegration {
       const currentUrl = location.href;
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
-        console.log('[Helius集成] URL 变化，重新检查...');
         this.checkAndInitMonitor();
       }
     });
@@ -371,7 +355,6 @@ class HeliusIntegration {
     if (!mint) {
       // 不在 mint 页面
       if (this.monitor) {
-        console.log('[Helius集成] 离开 mint 页面，停止监控');
         this.monitor.stop();
         this.monitor = null;
         this.currentMint = null;
@@ -396,7 +379,6 @@ class HeliusIntegration {
 
     // 停止旧的监控器
     if (this.monitor) {
-      console.log('[Helius集成] 切换到新 mint，停止旧监控');
       this.monitor.stop();
 
       // 清空 SidePanel 数据
@@ -404,9 +386,6 @@ class HeliusIntegration {
     }
 
     // 启动新的监控器（不检查开关状态，自动启动）
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[Helius集成] 检测到 Mint: ${mint}`);
-    console.log(`${'='.repeat(60)}\n`);
 
     dataFlowLogger.log('锁定控制', 'Monitor 启动', `检测到 Mint: ${mint.slice(0,8)}...，启动 HeliusMonitor`, { mint, apiEnabled: this.enabled, lockedMint: this.lockedMint });
 
@@ -452,15 +431,12 @@ class HeliusIntegration {
     try {
       await this.monitor.start();
       this.isInitialized = true;
-      console.log('\n[Helius集成] 监控已启动！\n');
     } catch (error) {
       // Extension context invalidated 不是真正的启动失败，monitor 仍可继续运行
       if (error.message && error.message.includes('Extension context invalidated')) {
-        console.warn('[Helius集成] 启动时 Extension context 尚未就绪，监控继续运行');
         this.isInitialized = true;
         return;
       }
-      console.error('[Helius集成] 启动失败:', error);
       this.monitor = null;
       this.currentMint = null;
     }
@@ -470,19 +446,6 @@ class HeliusIntegration {
    * 在控制台显示指标
    */
   displayMetrics(metrics, showDetailed = false) {
-    console.log('\n' + '='.repeat(60));
-    console.log('📊 实时指标更新');
-    console.log('='.repeat(60));
-    console.log(`🎯 当前 Mint: ${this.currentMint}`);
-    console.log(`💰 已落袋: ${metrics.yiLuDai.toFixed(4)} SOL`);
-    console.log(`🎯 本轮下注: ${metrics.benLunXiaZhu.toFixed(4)} SOL`);
-    console.log(`💵 本轮成本: ${metrics.benLunChengBen.toFixed(4)} SOL`);
-    console.log(`📈 浮盈浮亏: ${metrics.floatingPnL.toFixed(4)} SOL`);
-    console.log(`💲 当前价格: ${metrics.currentPrice.toFixed(10)} SOL/Token`);
-    console.log(`👥 活跃用户: ${metrics.activeCount}`);
-    console.log(`🚪 已退出: ${metrics.exitedCount}`);
-    console.log(`✅ 已处理: ${metrics.totalProcessed} 笔交易`);
-    console.log('='.repeat(60) + '\n');
 
     // 如果需要详细信息，调用详细打印方法（传入 GMGN 持有者数据）
     if (showDetailed && this.monitor && this.monitor.metricsEngine) {
@@ -492,25 +455,9 @@ class HeliusIntegration {
     // 获取统计信息
     if (this.monitor) {
       const stats = this.monitor.getStats();
-      console.log('📋 Signature 统计:');
-      console.log(`   总数: ${stats.total}`);
-      console.log(`   有数据: ${stats.hasData} (${((stats.hasData / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`   需获取: ${stats.needFetch} (${((stats.needFetch / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`   已处理: ${stats.isProcessed} (${((stats.isProcessed / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`   未处理: ${stats.notProcessed}`);
-      console.log(`   来源分布:`);
-      console.log(`     - 初始 API: ${stats.bySources.initial} (${((stats.bySources.initial / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`     - WebSocket: ${stats.bySources.websocket} (${((stats.bySources.websocket / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`     - GMGN插件: ${stats.bySources.plugin} (${((stats.bySources.plugin / stats.total) * 100).toFixed(1)}%)`);
-      console.log('');
 
       // 详细数据源统计
       const detailedStats = this.getDetailedDataSourceStats();
-      console.log('📊 数据源详细统计:');
-      console.log(`   Helius API 数据: ${detailedStats.heliusCount} (${((detailedStats.heliusCount / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`   GMGN 数据: ${detailedStats.gmgnCount} (${((detailedStats.gmgnCount / stats.total) * 100).toFixed(1)}%)`);
-      console.log(`   无数据: ${detailedStats.noDataCount} (${((detailedStats.noDataCount / stats.total) * 100).toFixed(1)}%)`);
-      console.log('');
 
       // 显示前 20 个 signatures
       this.displayFirst20Signatures();
@@ -547,8 +494,6 @@ class HeliusIntegration {
    * 显示前 20 个 signatures 的详细信息
    */
   displayFirst20Signatures() {
-    console.log('🔍 前 20 个 Signatures 详细信息:');
-    console.log('-'.repeat(60));
 
     const signatures = Array.from(this.monitor.signatureManager.signatures.entries());
     const first20 = signatures.slice(0, 20);
@@ -572,15 +517,8 @@ class HeliusIntegration {
       const hasDataStr = state.hasData ? '✓' : '✗';
       const isProcessedStr = state.isProcessed ? '✓' : '✗';
 
-      console.log(`${index + 1}. ${sig.substring(0, 12)}...`);
-      console.log(`   Signature发现来源: ${discoverySourcesStr}`);
-      console.log(`   交易数据来源: ${dataSourceStr}`);
-      console.log(`   有数据: ${hasDataStr} | 已处理: ${isProcessedStr}`);
-      console.log(`   时间戳: ${new Date(state.timestamp).toLocaleString()}`);
-      console.log('');
     });
 
-    console.log('-'.repeat(60) + '\n');
   }
 
   /**
@@ -588,11 +526,9 @@ class HeliusIntegration {
    */
   processNewGmgnTrades(trades) {
     if (!this.monitor || !this.monitor.isInitialized) {
-      console.log(`[Helius集成] processNewGmgnTrades 跳过: monitor=${!!this.monitor}, isInitialized=${this.monitor?.isInitialized}`);
       return;
     }
 
-    console.log(`[Helius集成] processNewGmgnTrades 开始处理 ${trades.length} 个新交易`);
 
     // 按时间排序（从旧到新）
     trades.sort((a, b) => a.timestamp - b.timestamp);
@@ -606,14 +542,12 @@ class HeliusIntegration {
 
       // 检查是否已处理
       if (this.monitor.signatureManager.isProcessedSig(sig)) {
-        console.log(`[Helius集成] 跳过已处理交易: ${sig.substring(0, 8)}...`);
         skippedCount++;
         return;
       }
 
       // 获取状态
       const state = this.monitor.signatureManager.getState(sig);
-      console.log(`[Helius集成] 交易状态 ${sig.substring(0, 8)}...: hasData=${state?.hasData}, isProcessed=${state?.isProcessed}`);
 
       if (state && state.hasData && !state.isProcessed) {
         // 处理交易
@@ -621,18 +555,14 @@ class HeliusIntegration {
         this.monitor.signatureManager.markProcessed(sig);
         processedCount++;
 
-        console.log(`[Helius集成] ✓ 处理新 GMGN 交易: ${sig.substring(0, 8)}...`);
       } else {
-        console.log(`[Helius集成] ✗ 无法处理交易 ${sig.substring(0, 8)}...: state=${!!state}`);
         skippedCount++;
       }
     });
 
-    console.log(`[Helius集成] processNewGmgnTrades 完成: 处理=${processedCount}, 跳过=${skippedCount}`);
 
     // 更新指标
     const metrics = this.monitor.metricsEngine.getMetrics();
-    console.log(`[Helius集成] 调用 displayMetrics, totalProcessed=${metrics.totalProcessed}`);
     this.displayMetrics(metrics);
   }
 
@@ -652,11 +582,9 @@ class HeliusIntegration {
         mint: this.currentMint
       }).catch(err => {
         if (!err.message.includes('Receiving end does not exist')) {
-          console.error('[Helius集成] 发送消息失败:', err);
         }
       });
     } catch (err) {
-      console.error('[Helius集成] sendMetricsToUI 异常:', err);
     }
   }
 
@@ -665,14 +593,9 @@ class HeliusIntegration {
    * @param {Array} holders - 持有者对象数组
    */
   async updateGmgnHolders(holders) {
-    console.log('[HeliusIntegration] 接收 GMGN holders 数据', { count: holders.length });
 
     // [调试] 打印第一个 holder 的字段结构
     if (holders.length > 0) {
-      console.log('[HeliusIntegration] 第一个 holder 的字段:', {
-        keys: Object.keys(holders[0]),
-        sample: holders[0]
-      });
     }
 
     // 更新 gmgnHolders 集合（用于判断谁是持有者）
@@ -701,7 +624,6 @@ class HeliusIntegration {
       // 发送数据到 Sidepanel
       this.sendDataToSidepanel();
     } else {
-      console.warn('[HeliusIntegration] Monitor 未启动，无法处理 holder 数据');
     }
   }
 
@@ -714,7 +636,6 @@ class HeliusIntegration {
     if (!trades || trades.length === 0) return;
 
     if (!this.monitor) {
-      console.warn('[HeliusIntegration] Monitor 未启动，无法处理 trades 数据');
       return;
     }
 
@@ -732,7 +653,6 @@ class HeliusIntegration {
       }
     });
 
-    console.log(`[HeliusIntegration] processFetchedTrades: 总数=${trades.length}, 新交易=${newTradesCount}`);
 
     if (this.monitor.isInitialized && newTradesCount > 0) {
       this.processNewGmgnTrades(newTrades);
@@ -800,11 +720,9 @@ class HeliusIntegration {
       }).catch(err => {
         // 忽略 SidePanel 未打开的错误
         if (!err.message.includes('Receiving end does not exist')) {
-          console.error('[Helius集成] 发送数据失败:', err);
         }
       });
     } catch (err) {
-      console.error('[Helius集成] sendDataToUI 异常:', err);
     }
   }
 
@@ -813,13 +731,11 @@ class HeliusIntegration {
    */
   sendClearMetrics() {
     try {
-      console.log('[Helius集成] 清空 SidePanel 指标');
       chrome.runtime.sendMessage({
         type: 'HELIUS_METRICS_CLEAR'
       }).catch(err => {
         // 忽略 SidePanel 未打开的错误
         if (!err.message.includes('Receiving end does not exist')) {
-          console.error('[Helius集成] 发送清空消息失败:', err);
         }
       });
 
@@ -867,7 +783,6 @@ class HeliusIntegration {
   clearData() {
     this.dataMap.clear();
     this.statusMap = {};
-    console.log('[Helius集成] 数据已清空');
   }
 
   /**
@@ -883,7 +798,6 @@ class HeliusIntegration {
    * @param {string} status - 状态（'庄家' 或 '散户'）
    */
   setManualScore(address, status) {
-    console.log('[Helius集成] 设置手动标记', { address, status });
 
     // 存储手动标记
     this.manualStatusMap[address] = status;
@@ -908,9 +822,7 @@ class HeliusIntegration {
   async saveStatus() {
     try {
       await chrome.storage.local.set({ holder_status: this.statusMap });
-      console.log('[Helius集成] 状态已保存');
     } catch (err) {
-      console.error('[Helius集成] 保存状态失败:', err);
     }
   }
 
@@ -939,7 +851,6 @@ class HeliusIntegration {
    * 更新 holders（暂时保留，但数据应该通过 HeliusMonitor 处理）
    */
   updateHolders(items) {
-    console.warn('[Helius集成] updateHolders 被调用，但数据应该通过 HeliusMonitor 处理');
     // 暂时不做任何处理，数据应该通过 HeliusMonitor 来
   }
 
@@ -947,7 +858,6 @@ class HeliusIntegration {
    * 更新 trades（暂时保留，但数据应该通过 HeliusMonitor 处理）
    */
   updateTrades(trades) {
-    console.warn('[Helius集成] updateTrades 被调用，但数据应该通过 HeliusMonitor 处理');
     // 暂时不做任何处理，数据应该通过 HeliusMonitor 来
     return 0;
   }
@@ -958,7 +868,6 @@ class HeliusIntegration {
    * 只有 monitor 实例需要在切换 mint 时清理
    */
   cleanup() {
-    console.log('[Helius集成] 开始清理所有资源...');
 
     // 1. 清理事件监听器（注意：通常不需要清理，因为是全局监听）
     if (this.hookSignaturesHandler) {
@@ -1000,7 +909,6 @@ class HeliusIntegration {
     this.currentMint = null;
     this.isInitialized = false;
 
-    console.log('[Helius集成] 资源清理完成');
   }
 
   /**
@@ -1052,14 +960,12 @@ class HeliusIntegration {
       if (area === 'local') {
         if (changes.boss_config) {
           this.bossConfig = changes.boss_config.newValue;
-          console.log('[Helius集成] 评分配置已更新');
           if (this.monitor) {
             this.monitor.setBossConfig(this.bossConfig);
           }
         }
         if (changes.score_threshold) {
           this.scoreThreshold = changes.score_threshold.newValue;
-          console.log('[Helius集成] Score< 阈值已更新:', this.scoreThreshold);
           if (this.monitor) {
             this.monitor.setScoreThreshold(this.scoreThreshold);
             // 重新发送过滤后的数据到 Sidepanel
@@ -1068,14 +974,12 @@ class HeliusIntegration {
         }
         if (changes.status_threshold) {
           this.statusThreshold = changes.status_threshold.newValue;
-          console.log('[Helius集成] 状态判断阈值已更新:', this.statusThreshold);
           if (this.monitor) {
             this.monitor.setStatusThreshold(this.statusThreshold);
           }
         }
         if (changes.helius_api_key) {
           this.apiKey = changes.helius_api_key.newValue || '';
-          console.log('[Helius集成] API Key 已更新');
           if (this.monitor) {
             this.monitor.setApiKey(this.apiKey);
           }

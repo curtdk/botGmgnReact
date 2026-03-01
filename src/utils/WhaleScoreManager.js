@@ -31,9 +31,7 @@ export default class WhaleScoreManager {
             if (res.boss_config && typeof res.boss_config === 'object') {
                 this.bossConfig = { ...this.bossConfig, ...res.boss_config };
             }
-            console.log('[GMGN Manager] Data loaded from chrome.storage.local');
         } catch (e) {
-            console.error('[GMGN Manager] Init failed:', e);
         }
     }
 
@@ -42,7 +40,6 @@ export default class WhaleScoreManager {
             chrome.storage.local.set({ holder_status: this.statusMap });
         } catch (e) {
             if (!e.message.includes('Extension context invalidated')) {
-                console.error('[GMGN Manager] Save status failed:', e);
             }
         }
     }
@@ -52,7 +49,6 @@ export default class WhaleScoreManager {
             chrome.storage.local.set({ gmgn_short_map: this.shortAddressMap });
         } catch (e) {
             if (!e.message.includes('Extension context invalidated')) {
-                console.error('[GMGN Manager] Save short map failed:', e);
             }
         }
     }
@@ -72,7 +68,6 @@ export default class WhaleScoreManager {
                 return Object.keys(data).length;
             }
         } catch (e) {
-            console.error('[GMGN Manager] Import status failed:', e);
         }
         return 0;
     }
@@ -112,7 +107,6 @@ export default class WhaleScoreManager {
                 return Object.keys(data).length;
             }
         } catch (e) {
-            console.error('[GMGN Manager] Import failed:', e);
         }
         return 0;
     }
@@ -171,7 +165,6 @@ export default class WhaleScoreManager {
         // debugger;
         
         if (!rawItems || !Array.isArray(rawItems)) return new Set();
-        console.log(`[WhaleScoreManager] updateData called. rawItems: ${rawItems.length}, isWebData: ${isWebData}`);
 
         
 

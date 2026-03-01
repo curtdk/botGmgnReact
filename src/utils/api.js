@@ -38,7 +38,7 @@ export async function getKeys(){
     try{
         // 1. 优先尝试从统一存储中读取
         let data = {};
-        try{ data = await stoGet(['env_keys', 'be_keys']); } catch(e){ console.warn('[GMGN API] stoGet error:', e); }
+        try{ data = await stoGet(['env_keys', 'be_keys']); } catch(e){ }
         
         let keys = data && data.env_keys;
         if(!keys || (Array.isArray(keys) && !keys.length)){
@@ -49,7 +49,7 @@ export async function getKeys(){
              }
          }
         if(Array.isArray(keys) && keys.length) return keys;
-    }catch(e){ console.warn('[GMGN API] getKeys error:', e); }
+    }catch(e){ }
       
     try{
         // 2. 尝试从全局变量读取
@@ -69,7 +69,6 @@ async function fetchPage(address,key,offset,limit,timeoutMs){
     const ms=timeoutMs||12000;
     const controller=new AbortController();
     const id=setTimeout(()=>controller.abort(),ms);
-    console.log('[GMGN API] GET', url, 'key', (key||'').slice(0,6)+'...')
     const r=await fetch(url,{method:'GET',headers:{accept:'application/json','x-chain':'solana','X-API-KEY':(key||'').trim()},signal:controller.signal});
     clearTimeout(id);
     if(r.status===429) throw new Error('HTTP 429');
@@ -154,7 +153,6 @@ export async function fetchAll(address, keys, limit=100, maxCount=1000, onProgre
         if(/HTTP\s*429/i.test(msg) || /Too\s*Many\s*Requests/i.test(msg) || /HTTP\s*403/i.test(msg) || /HTTP\s*401/i.test(msg)){
           keyIndex=(keyIndex+1)%Math.max(1,keys.length);
           if(keys.length > 0 && keyIndex === 0){
-             console.warn('[GMGN API] 所有 Key 均尝试失败');
              // 抛出错误以便上层捕获并显示日志
              throw new Error('所有 Key 均尝试失败');
           }
@@ -203,7 +201,7 @@ export function getMintFromPage(){
         const v=possible.getAttribute('data-mint')||possible.textContent||possible.value||'';
         if(v&&v.length>30){ return v.trim().split(/[?#]/)[0] }
       }
-    }catch(e){ console.warn('[GMGN API] getMintFromPage error:', e) }
+    }catch(e){ }
     return ''
 }
 
@@ -231,7 +229,6 @@ export function findPriceDOM() {
         if (oldContainer) return oldContainer.parentElement;
 
     } catch (e) {
-        console.warn('[GMGN API] findPriceDOM error:', e);
     }
     return null;
 }
@@ -307,7 +304,6 @@ export function getPriceFromPage() {
             }
         }
     } catch (e) {
-        console.warn('[GMGN API] getPriceFromPage error:', e);
     }
     return 0;
 }

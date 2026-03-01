@@ -18,14 +18,6 @@ export default class ScoringEngine {
    * @returns {{ scoreMap: Map, whaleAddresses: Set, statistics: Object }}
    */
   calculateScores(userInfo, traderStats, config, manualScores = {}, statusThreshold = 50) {
-    console.log('[ScoringEngine] 开始计算分数', {
-      userCount: Object.keys(userInfo).length,
-      manualScoreCount: Object.keys(manualScores).length,
-      statusThreshold,
-      configKeys: Object.keys(config).length,
-      enableNoSource: config.enable_no_source,
-      weightNoSource: config.weight_no_source
-    });
 
     dataFlowLogger.log(
       'ScoringEngine',
@@ -44,12 +36,6 @@ export default class ScoringEngine {
     // 调试：显示第一个用户的信息
     const firstUser = Object.entries(userInfo)[0];
     if (firstUser) {
-      console.log('[ScoringEngine] 第一个用户示例:', {
-        address: firstUser[0].substring(0, 8) + '...',
-        hasFundingAccount: !!firstUser[1].funding_account,
-        fundingAccount: firstUser[1].funding_account ? firstUser[1].funding_account.substring(0, 8) + '...' : 'null',
-        owner: firstUser[1].owner ? firstUser[1].owner.substring(0, 8) + '...' : 'null'
-      });
     }
 
     // 阶段 2: 计算每个用户的分数
@@ -96,13 +82,6 @@ export default class ScoringEngine {
 
       // 详细日志：显示前几个用户的评分详情
       if (detailCount < maxDetailLog) {
-        console.log(`[ScoringEngine] 用户评分详情 [${detailCount + 1}/${maxDetailLog}]:`, {
-          address: address.substring(0, 8) + '...',
-          score: finalScore,
-          reasons: reasons,
-          status: isWhale ? '庄家' : '散户',
-          hasManualMark: manualScores[address] === '庄家'
-        });
         detailCount++;
       }
     }
@@ -117,15 +96,7 @@ export default class ScoringEngine {
       reasons: data.reasons.join(', ')
     }));
 
-    console.log('[ScoringEngine] 所有用户分数详情:', allUserScores);
 
-    console.log('[ScoringEngine] 分数计算完成', {
-      totalUsers: scoreMap.size,
-      whaleCount: whaleAddresses.size,
-      retailCount: scoreMap.size - whaleAddresses.size,
-      avgScore: avgScore.toFixed(2),
-      scoreDistribution: scoreDistribution
-    });
 
     dataFlowLogger.log(
       'ScoringEngine',
@@ -255,11 +226,6 @@ export default class ScoringEngine {
       }
     }
 
-    console.log('[ScoringEngine] 统计数据收集完成', {
-      fundingGroups: stats.fundingGroups.size,
-      timeClusteredUsers: stats.timeClusteredUsers.size,
-      sourceTimeClusteredUsers: stats.sourceTimeClusteredUsers.size
-    });
 
     return stats;
   }

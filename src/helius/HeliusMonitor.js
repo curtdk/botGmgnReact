@@ -70,8 +70,6 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   async start() {
-    console.log(`\n--- 启动 HeliusMonitor v2 ---`);
-    console.log(`Mint: ${this.mint}`);
 
     try {
       // 1. 初始化缓存
@@ -80,7 +78,6 @@ export default class HeliusMonitor {
 
       // 2. 从 IndexedDB 加载手动标记（替代 chrome.storage）
       this.manualScores = await this.cacheManager.loadManualScores(this.mint);
-      console.log(`[初始化] 加载手动标记: ${Object.keys(this.manualScores).length} 条`);
 
       // 3. 连接 WebSocket
       this.connectWs();
@@ -100,18 +97,12 @@ export default class HeliusMonitor {
 
       // 7. 进入实时模式
       this.isInitialized = true;
-      console.log('\n[系统] 进入实时模式\n');
 
       // 8. 启动动态 verify
       this._scheduleNextVerify();
 
     } catch (error) {
-      if (this.isStopped) {
-        console.log('[系统] 启动过程中被停止');
-      } else {
-        console.error('[系统] 启动失败:', error);
-      }
-      throw error;
+      if (!this.isStopped) throw error;
     }
   }
 
@@ -120,7 +111,6 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   async _parallelFetchAndWait() {
-    console.log('[并行] 开始：Helius sig 流式获取 + 等待 GMGN 数据');
 
     // GMGN 等待 Promise
     this.signatureManager.startWaitPeriod();
@@ -139,7 +129,6 @@ export default class HeliusMonitor {
     this.progressInterval = setInterval(() => {
       if (this.isStopped) { clearInterval(this.progressInterval); return; }
       const stats = this.signatureManager.getStats();
-      console.log(`[等待] ${((Date.now() - startTime) / 1000).toFixed(0)}s | sigs=${stats.total} 有数据=${stats.hasData}`);
     }, 5000);
 
     this.onGmgnDataLoaded = () => {
@@ -153,14 +142,9 @@ export default class HeliusMonitor {
       : Promise.resolve({ totalNew: 0, totalCached: 0 });
 
     // 等待 GMGN 或超时
-    const gmgnResult = await Promise.race([gmgnPromise, timeoutPromise]);
+    await Promise.race([gmgnPromise, timeoutPromise]);
     clearInterval(this.progressInterval);
 
-    if (gmgnResult === 'timeout') {
-      console.warn('[并行] GMGN 等待超时，继续执行');
-    } else {
-      console.log('[并行] GMGN 数据加载完成');
-    }
 
     // 等待 Helius 流式获取完成（通常此时早已完成）
     const fetchResult = await heliusFetchPromise;
@@ -195,7 +179,6 @@ export default class HeliusMonitor {
       }
 
       if (isLast) {
-        console.log(`[流式] Helius sig 获取完成，共 ${pageIndex} 页`);
       }
     });
   }
@@ -211,12 +194,10 @@ export default class HeliusMonitor {
       try { this.ws.close(); } catch (_e) { /* ignore */ }
     }
 
-    console.log('[WebSocket] 连接中...');
     this.ws = new WebSocket(`wss://mainnet.helius-rpc.com/?api-key=${this.apiKey}`);
 
     this.ws.onopen = () => {
       if (this.isStopped) return;
-      console.log('[WebSocket] 已连接，订阅实时日志...');
       this.wsStatus = { ...this.wsStatus, connected: true, lastConnectTime: Date.now(), error: null };
       this.notifyWsStatusChange();
 
@@ -243,13 +224,11 @@ export default class HeliusMonitor {
           this.handleNewSignature(sig, 'websocket');
         }
       } catch (err) {
-        console.error('[WebSocket] 解析错误:', err);
       }
     };
 
     this.ws.onclose = () => {
       if (this.isStopped) return;
-      console.log('[WebSocket] 断开，3s 后重连...');
       clearInterval(this.pingInterval);
       this.wsStatus = { ...this.wsStatus, connected: false, lastDisconnectTime: Date.now(), reconnectCount: this.wsStatus.reconnectCount + 1 };
       this.notifyWsStatusChange();
@@ -258,7 +237,6 @@ export default class HeliusMonitor {
 
     this.ws.onerror = (err) => {
       if (this.isStopped) return;
-      console.error('[WebSocket] 错误:', err);
       this.wsStatus = { ...this.wsStatus, error: err.message || 'WebSocket 连接错误' };
       this.notifyWsStatusChange();
     };
@@ -273,11 +251,9 @@ export default class HeliusMonitor {
 
     const missingSigs = this.signatureManager.getMissingSignatures();
     if (missingSigs.length === 0) {
-      console.log('[获取] 无需补全，所有数据已就绪');
       return;
     }
 
-    console.log(`[获取] 需补全 ${missingSigs.length} 个交易...`);
 
     // 先从缓存加载
     const cachedTxs = await this.cacheManager.loadTransactionsBySignatures(missingSigs);
@@ -320,13 +296,9 @@ export default class HeliusMonitor {
 
     const readySignatures = this.signatureManager.getReadySignatures();
     if (readySignatures.length === 0) {
-      console.log('[首次计算] 没有可处理的交易');
       return;
     }
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[首次计算] 开始处理 ${readySignatures.length} 笔交易（按时间正序）`);
-    console.log('='.repeat(60));
 
     this.metricsEngine.setTotalTransactions(readySignatures.length);
 
@@ -336,7 +308,6 @@ export default class HeliusMonitor {
       this.signatureManager.markProcessed(item.sig);
     }
 
-    console.log(`[首次计算] 完成，处理 ${readySignatures.length} 笔`);
     this.metricsEngine.printMetrics();
     this.metricsEngine.printDetailedMetrics();
 
@@ -358,13 +329,11 @@ export default class HeliusMonitor {
     if (this.signatureManager.isProcessedSig(sig)) return;
 
     if (!this.signatureManager.hasData(sig)) {
-      console.log(`[实时] 获取新交易: ${sig.slice(0, 8)}...`);
       const txs = await this.dataFetcher.fetchParsedTxs([sig], this.mint);
       if (this.isStopped) return;
       if (txs.length > 0) {
         this.signatureManager.markHasData(sig, txs[0]);
       } else {
-        console.error(`[实时] 获取失败: ${sig}`);
         return;
       }
     }
@@ -378,7 +347,6 @@ export default class HeliusMonitor {
       // 同步更新 IndexedDB sig 状态
       this.cacheManager.updateSigStatus(sig, { isProcessed: true }).catch(() => {});
 
-      console.log(`[实时] 处理新交易: ${sig.slice(0, 8)}...`);
       this.metricsEngine.printMetrics();
 
       if (this.onMetricsUpdate && !this.isStopped) {
@@ -407,13 +375,11 @@ export default class HeliusMonitor {
         });
       }
     }, interval);
-    console.log(`[校验] 下次校验: ${(interval / 1000).toFixed(0)}s 后`);
   }
 
   async verifySignatures() {
     if (this.isStopped) return;
     const startTime = Date.now();
-    console.log('[校验] 开始校验...');
 
     try {
       // 动态拉取数量：默认50条，有遗漏时拉200条
@@ -453,7 +419,6 @@ export default class HeliusMonitor {
       }
 
       if (newCount > 0) {
-        console.log(`[校验] 发现 ${newCount} 个遗漏 sig，补全中...`);
         const txs = await this.dataFetcher.fetchParsedTxs(newSigsToFetch, this.mint);
         if (this.isStopped) return;
 
@@ -465,13 +430,11 @@ export default class HeliusMonitor {
           this.signatureManager.markProcessed(sig);
         }
 
-        console.log(`[校验] 补全 ${newCount} 个遗漏交易，耗时 ${Date.now() - startTime}ms`);
 
         if (this.onMetricsUpdate && !this.isStopped) {
           this.onMetricsUpdate(this.metricsEngine.getMetrics());
         }
       } else {
-        console.log(`[校验] 无遗漏 (耗时 ${Date.now() - startTime}ms) → 下次间隔 ${(this._verifyIntervalMs / 1000).toFixed(0)}s`);
       }
 
       this.lastVerifyTime = Date.now();
@@ -482,7 +445,6 @@ export default class HeliusMonitor {
 
     } catch (error) {
       if (this.isStopped) return;
-      console.error('[校验] 失败:', error.message);
     }
   }
 
@@ -491,7 +453,6 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   stop() {
-    console.log('[系统] 停止监控...');
     this.isStopped = true;
 
     if (this.ws) {
@@ -527,7 +488,6 @@ export default class HeliusMonitor {
       try { this.cacheManager.close(); } catch (_e) { /* ignore */ }
     }
 
-    console.log('[系统] 监控已停止');
   }
 
   // ─────────────────────────────────────────────────────────
@@ -560,9 +520,7 @@ export default class HeliusMonitor {
       }
 
       // 异步持久化用户评分到 IndexedDB
-      this._persistUserScores(scoreMap).catch(e =>
-        console.warn('[HeliusMonitor] 持久化用户评分失败:', e.message)
-      );
+      this._persistUserScores(scoreMap).catch(() => {});
 
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
@@ -574,7 +532,6 @@ export default class HeliusMonitor {
         { holderCount: holders.length, whaleCount: whaleAddresses.size, filteredCount: filteredUsers.size }
       );
     } catch (error) {
-      console.error('[HeliusMonitor] updateHolderData 失败:', error);
     }
   }
 
@@ -597,12 +554,6 @@ export default class HeliusMonitor {
       const score = scoreMap.get(address)?.score ?? 0;
       if (score < this.scoreThreshold) filtered.add(address);
     }
-    console.log('[HeliusMonitor] 过滤用户:', {
-      total: Object.keys(this.metricsEngine.traderStats).length,
-      scored: scoreMap.size,
-      filtered: filtered.size,
-      threshold: this.scoreThreshold
-    });
     return filtered;
   }
 
@@ -616,15 +567,13 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   setManualScore(address, status) {
-    console.log('[HeliusMonitor] 设置手动标记:', { address, status });
     this.manualScores[address] = status;
     // 持久化到 IndexedDB
     this.cacheManager.saveManualScores(this.mint, { [address]: status })
-      .catch(e => console.warn('[HeliusMonitor] 保存手动标记失败:', e.message));
+      .catch(() => {});
   }
 
   setManualScores(manualScores) {
-    console.log('[HeliusMonitor] 批量设置手动标记:', Object.keys(manualScores).length, '条');
     this.manualScores = { ...manualScores };
   }
 
@@ -707,7 +656,6 @@ export default class HeliusMonitor {
       }
 
       if (unchecked.length === 0) {
-        console.log('[HiddenRelay] 全部命中 IndexedDB 缓存');
         return;
       }
 
@@ -780,7 +728,6 @@ export default class HeliusMonitor {
             }
 
           } catch (err) {
-            console.warn(`[HiddenRelay] 检测失败 ${shortAddr}:`, err.message);
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
           }

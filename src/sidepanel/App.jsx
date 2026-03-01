@@ -631,7 +631,6 @@ const App = () => {
                   type: 'HELIUS_MONITOR_TOGGLE',
                   enabled: enabled
               }).catch(err => {
-                  console.warn('[SidePanel] 发送 Helius 开关消息失败:', err);
               });
           }
       });
@@ -652,7 +651,6 @@ const App = () => {
                   type: 'DATA_FLOW_LOGGER_TOGGLE',
                   enabled: enabled
               }).catch(err => {
-                  console.warn('[SidePanel] 发送日志开关消息失败:', err);
               });
           }
       });
@@ -676,7 +674,6 @@ const App = () => {
                       setShowLogViewer(true);
                   }
               }).catch(err => {
-                  console.warn('[SidePanel] 获取日志失败:', err);
               });
           }
       });
@@ -691,7 +688,6 @@ const App = () => {
               chrome.tabs.sendMessage(tabs[0].id, {
                   type: 'EXPORT_DATA_FLOW_LOGS'
               }).catch(err => {
-                  console.warn('[SidePanel] 导出日志失败:', err);
               });
           }
       });
@@ -709,7 +705,6 @@ const App = () => {
                   setLogStats({ total: 0, bySources: {}, byEvents: {} });
                   addLog('日志已清空');
               }).catch(err => {
-                  console.warn('[SidePanel] 清空日志失败:', err);
               });
           }
       });
@@ -750,23 +745,19 @@ const App = () => {
    */
   const handleFullRefresh = async (quiet = false) => {
       if (!isStartedRef.current) return; // 未启动则跳过
-      console.log('[GMGN App] handleFullRefresh called, quiet:', quiet);
       if(!quiet) { addLog('状态：正在全量获取...'); setStartStage('获取持仓数据...'); }
       
       try {
           if(!pageMint) {
-              console.warn('[GMGN App] No mint found');
               addLog('错误：未找到 Mint 地址');
               return;
           }
-          console.log('[GMGN App] Mint:', pageMint);
           
           // 更新管理器 Mint
           if (scoreManagerRef.current) scoreManagerRef.current.setMint(pageMint);
           
           const keys = await getKeys();
           if(!keys || keys.length === 0) {
-              console.warn('[GMGN App] No keys found');
               addLog('错误：未配置 API Keys');
               return;
           }
@@ -799,7 +790,6 @@ const App = () => {
           if(!quiet) addLog(`状态：更新完成，共 ${rawItems.length} 条`);
           
       } catch (e) {
-          console.error('[GMGN App] handleFullRefresh Error:', e);
           if(!quiet) addLog(`错误：${e.message}`);
       }
   };
@@ -823,7 +813,6 @@ const App = () => {
                   await handleFullRefresh(true);
                   break;
               } catch(e) {
-                  console.error(e);
                   break;
               }
           }
@@ -844,7 +833,6 @@ const App = () => {
           return;
       }
       
-      console.log('[GMGN App] Requesting Proxy Refresh:', url);
       
       // 发送指令给 Content Script 执行真正的 fetch
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -854,7 +842,6 @@ const App = () => {
                   url: url 
               }, (response) => {
                   if (chrome.runtime.lastError) {
-                      console.warn('[GMGN App] Hook refresh error:', chrome.runtime.lastError.message);
                   } else if (response) {
                       // console.log('[GMGN App] Hook refresh response:', response);
                   }
@@ -881,7 +868,6 @@ const App = () => {
                   url: url 
               }, (response) => {
                   if (chrome.runtime.lastError) {
-                      console.warn('[GMGN App] Trades refresh error:', chrome.runtime.lastError.message);
                   } else if (response) {
                       // console.log('[GMGN App] Trades refresh response:', response);
                   }
@@ -896,10 +882,8 @@ const App = () => {
    */
   const initPageLogic = (mint) => {
       if (!mint) {
-          console.warn('[GMGN App] Init page called with invalid mint:', mint);
           return;
       }
-      console.log('[GMGN App] Init page for mint:', mint);
       addLog(`检测到新代币: ${mint.slice(0,6)}...`);
 
       // 已启动时锁定 mint，忽略页面切换
@@ -1083,7 +1067,6 @@ const App = () => {
         } else if (request.type === 'HELIUS_METRICS_CLEAR') {
             // 已启动时忽略清空指令（防止切换 mint 时覆盖锁定 mint 的数据）
             if (isStartedRef.current) return;
-            console.log('[SidePanel] 清空 Helius 指标');
             setHeliusMetrics(null);
             setHeliusStats(null);
             setHeliusMint(null);
@@ -1103,7 +1086,6 @@ const App = () => {
         if (tabs[0]?.id) {
             chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_PAGE_STATE' }, (response) => {
                  if (chrome.runtime.lastError) {
-                     console.log('Content script not ready yet?', chrome.runtime.lastError.message);
                      return;
                  }
                  if (response) {
@@ -1113,7 +1095,6 @@ const App = () => {
                      
                      // 2. 如果有暂存的 Hook 数据，立即加载
                      if (response.hookData && response.hookData.data) {
-                         console.log('[GMGN SidePanel] Loaded cached hook data:', response.hookData.data.length);
                          const cachedItems = response.hookData.data;
                          // [修改] 不再使用 WhaleScoreManager 重新计算分数
                          // 直接使用缓存数据的分数,确保数据一致性
@@ -1908,7 +1889,6 @@ const App = () => {
                       <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #374151' }}>
                           <div style={{ color: '#6b7280', fontSize: '10px', cursor: 'pointer' }}
                                onClick={() => {
-                                   console.log('[用户完整数据]', selectedItem);
                                    navigator.clipboard.writeText(JSON.stringify(selectedItem, null, 2));
                                    addLog('用户数据已复制到剪贴板');
                                }}>

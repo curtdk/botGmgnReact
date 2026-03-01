@@ -68,16 +68,13 @@ const TradePanel = ({ onClose, fixedBuyAmounts = [0.01, 0.05, 0.1], fixedSellPct
                 params.amount = val + '%'; // Percent string for sell
             }
 
-            console.log(`[TradePanel] Executing ${type} ${params.amount} for ${mint}`);
             const res = await doTrade(type, params);
-            console.log('[TradePanel] Result:', res);
             
             setStatusMsg({ text: '交易提交成功', type: 'success' });
             
             // 3秒后清除成功消息
             setTimeout(() => setStatusMsg(null), 3000);
         } catch (e) {
-            console.error('[TradePanel] Error:', e);
             setStatusMsg({ text: `失败: ${e.message}`, type: 'error' });
         }
     };

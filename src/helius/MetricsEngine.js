@@ -127,7 +127,6 @@ export default class MetricsEngine {
     const signature = tx.transaction.signatures[0];
 
     if (meta.err) {
-      console.log(`[MetricsEngine] ⏭️  跳过失败交易: ${signature.substring(0, 8)}...`);
       return;
     }
 
@@ -162,7 +161,6 @@ export default class MetricsEngine {
 
     this.currentTransactionIndex++;
     if (this.totalTransactions > 0) {
-      console.log(`[交易 ${this.currentTransactionIndex}/${this.totalTransactions}] ${signature.substring(0, 8)}... | ${feePayer.substring(0, 8)}... | SOL:${solChange >= 0 ? '+' : ''}${solChange.toFixed(4)} Token:${tokenChange >= 0 ? '+' : ''}${tokenChange.toFixed(0)}`);
     }
 
     this.updateTraderState(feePayer, solChange, tokenChange, signature, timestamp, 'Helius API', rawTimestamp);
@@ -294,7 +292,6 @@ export default class MetricsEngine {
       // 重置当前轮次
       stats.currentRound = { buySOL: 0, sellSOL: 0, txCount: 0, openTime: null };
 
-      console.log(`[MetricsEngine] 🔄 ${user.slice(0, 8)}... 轮次结束 | 净流水: ${closedRound.netFlow >= 0 ? '+' : ''}${closedRound.netFlow.toFixed(4)} SOL | 历史累计: ${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
     }
 
     // ── 添加到实时交易列表 ──
@@ -404,50 +401,26 @@ export default class MetricsEngine {
 
   printMetrics() {
     const m = this.getMetrics();
-    console.log('\n========== 指标统计 v2 ==========');
-    console.log(`已落袋:   ${m.yiLuDai.toFixed(4)} SOL  (历史持仓净流水)`);
-    console.log(`本轮下注: ${m.benLunXiaZhu.toFixed(4)} SOL  (当前持仓净成本)`);
-    console.log(`本轮成本: ${m.benLunChengBen.toFixed(4)} SOL  (下注 - 落袋)`);
-    console.log(`浮盈浮亏: ${m.floatingPnL.toFixed(4)} SOL  (落袋 + 当前净流水)`);
-    console.log(`当前价格: ${m.currentPrice.toFixed(10)} SOL/Token`);
-    console.log(`活跃用户: ${m.activeCount} | 历史轮次: ${m.exitedCount}`);
-    console.log(`已处理交易: ${m.totalProcessed} | 跳过庄家: ${m.skippedWhaleCount}`);
-    console.log('=================================\n');
   }
 
   printDetailedMetrics() {
-    console.log('\n' + '='.repeat(80));
-    console.log('详细指标 v2 - 按用户轮次展开');
-    console.log('='.repeat(80));
 
     Object.entries(this.traderStats).forEach(([address, stats]) => {
       const s = `${address.slice(0, 4)}...${address.slice(-4)}`;
-      console.log(`\n👤 ${s} (${address})`);
 
       if (stats.completedRounds.length > 0) {
-        console.log(`  历史持仓 (${stats.completedRounds.length} 轮):`);
         stats.completedRounds.forEach((r, i) => {
-          console.log(`    Round ${i + 1}: 买=${r.buySOL.toFixed(4)} 卖=${r.sellSOL.toFixed(4)} 净流水=${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(4)} SOL`);
         });
-        console.log(`  历史合计净流水: ${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
       }
 
       const r = stats.currentRound;
       if (r.buySOL > 0 || r.txCount > 0) {
         const netCost = r.buySOL - r.sellSOL;
-        console.log(`  当前持仓: 买=${r.buySOL.toFixed(4)} 卖=${r.sellSOL.toFixed(4)} 净成本=${netCost.toFixed(4)} SOL | ${r.txCount}笔`);
       } else {
-        console.log(`  当前持仓: 空仓`);
       }
     });
 
     const m = this.getMetrics();
-    console.log('\n' + '='.repeat(80));
-    console.log(`已落袋:   ${m.yiLuDai.toFixed(4)} SOL`);
-    console.log(`本轮下注: ${m.benLunXiaZhu.toFixed(4)} SOL`);
-    console.log(`本轮成本: ${m.benLunChengBen.toFixed(4)} SOL`);
-    console.log(`浮盈浮亏: ${m.floatingPnL.toFixed(4)} SOL`);
-    console.log('='.repeat(80) + '\n');
   }
 
   // ─────────────────────────────────────────────────────────
@@ -461,7 +434,6 @@ export default class MetricsEngine {
     }
 
     const uiAmount = holderData.ui_amount || holderData.amount || 0;
-    console.log(`[MetricsEngine] updateUserInfo: ${owner.slice(0, 8)}... ui_amount=${uiAmount}`);
 
     Object.assign(this.traderStats[owner], {
       owner,
@@ -479,7 +451,6 @@ export default class MetricsEngine {
 
   updateUsersInfo(holdersArray) {
     holdersArray.forEach(holder => this.updateUserInfo(holder));
-    console.log(`[MetricsEngine] 更新了 ${holdersArray.length} 个用户信息`);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -488,7 +459,6 @@ export default class MetricsEngine {
 
   updateWhaleAddresses(whaleAddresses) {
     this.whaleAddresses = whaleAddresses || new Set();
-    console.log(`[MetricsEngine] 更新庄家地址: ${this.whaleAddresses.size} 个`);
   }
 
   isWhaleAddress(address) {
@@ -497,7 +467,6 @@ export default class MetricsEngine {
 
   setFilteredUsers(userSet) {
     this.filteredUsers = userSet;
-    console.log(`[MetricsEngine] 过滤用户列表: ${userSet.size} 个`);
   }
 
   updateBossConfig(config) {

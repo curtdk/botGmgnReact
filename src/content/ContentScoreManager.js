@@ -82,7 +82,6 @@ export default class ContentScoreManager {
 
             if (res.mode_boss_refresh !== undefined) this.modeConfig.mode_boss_refresh = res.mode_boss_refresh;
             
-            console.log('[ContentManager] Config loaded', this.modeConfig);
 
             // 2. 监听变化 (实时更新内存，无需重读 IO)
             chrome.storage.onChanged.addListener((changes, area) => {
@@ -111,7 +110,6 @@ export default class ContentScoreManager {
                 }
             });
         } catch (e) {
-            console.error('[ContentManager] Init failed:', e);
         }
     }
 
@@ -145,7 +143,6 @@ export default class ContentScoreManager {
 
         // 4. 异步更新存储 (不阻塞)
         chrome.storage.local.set({ gmgn_short_map: this.shortAddressMap }).catch(err => {
-            console.error('[ContentManager] Failed to save short address:', err);
         });
     }
 
@@ -182,11 +179,8 @@ export default class ContentScoreManager {
         // 仅当有实际变更时才写入 Storage
         if (changed) {
             chrome.storage.local.set({ gmgn_short_map: this.shortAddressMap }).catch(err => {
-                console.error('[ContentManager] Failed to batch save short addresses:', err);
             });
-            console.log(`[ContentManager] Batch updated ${updateCount} short addresses.`);
         } else {
-            console.log('[ContentManager] Batch update skipped (No changes).');
         }
 
         return updateCount;
@@ -210,7 +204,6 @@ export default class ContentScoreManager {
             item.last_updated = Date.now();
         }
         
-        console.log(`[ContentManager] Status updated in memory: ${owner} -> ${status}`);
     }
 
     /**
@@ -223,9 +216,7 @@ export default class ContentScoreManager {
             // 合并当前内存中的状态到存储中
             const merged = { ...current, ...this.statusMap };
             await chrome.storage.local.set({ holder_status: merged });
-            console.log('[ContentManager] Status persisted to storage');
         } catch (e) {
-            console.error('[ContentManager] Failed to save status:', e);
         }
     }
 
@@ -433,7 +424,6 @@ export default class ContentScoreManager {
         let createCount = 0; // 新增用户数
         // 获取当前时间戳作为快照基准 (使用 Date.now() 或 API 响应时间)
         const snapshotTs = Date.now();
-        console.log(`[GMGN 调试] Holder列表更新: ${items.length} 个用户, 快照基准时间: ${new Date(snapshotTs).toLocaleString()} (${snapshotTs})`);
 
         items.forEach((raw, index) => {
             try {
@@ -505,7 +495,6 @@ export default class ContentScoreManager {
 
                 this.dataMap.set(owner, merged);
             } catch (err) {
-                console.error('[ContentManager] Error processing item:', raw, err);
             }
         });
 
@@ -514,7 +503,6 @@ export default class ContentScoreManager {
             this.saveStatus();
         }
         
-        console.log(`[GMGN 调试] Holder列表处理完毕: 更新现有 ${updateCount}, 新增 ${createCount}, 总用户数(含Trade补充) ${this.dataMap.size}`);
     }
 
     /**
@@ -583,7 +571,6 @@ export default class ContentScoreManager {
             if (user.last_snapshot_ts && txTimeMs <= user.last_snapshot_ts) {
                 // 已被快照包含，跳过数值累加
                 skippedCount++;
-                console.log(`[GMGN 调试] 交易跳过: 用户 ${this.getShortAddress(maker) || maker.slice(0,4)}, 交易时间 ${new Date(txTimeMs).toLocaleString()} <= 快照时间 ${new Date(user.last_snapshot_ts).toLocaleString()}`);
             } else {
                 // 正常的增量累加
                 newCount++;
@@ -648,7 +635,6 @@ export default class ContentScoreManager {
                                     user.status = '庄家';
                                     this.statusMap[maker] = '庄家';
                                     hasNewStatus = true;
-                                    console.log(`[GMGN Content] Mark ${maker} as 庄家 (Low Gas detected: ${user.max_gas_fee})`);
                                 }
                             }
                         }
@@ -662,7 +648,6 @@ export default class ContentScoreManager {
                     user.status = '庄家';
                     this.statusMap[maker] = '庄家';
                     hasNewStatus = true;
-                    console.log(`[GMGN Content] Mark ${maker} as 庄家 (Creator tag detected)`);
                 }
             }
 
@@ -684,7 +669,6 @@ export default class ContentScoreManager {
         }
         
         if (newCount > 0 || skippedCount > 0) {
-            console.log(`[GMGN 调试] Trades 处理完成: 新增生效 ${newCount} 笔, 跳过重复 ${skippedCount} 笔`);
         }
         
         return newCount;
