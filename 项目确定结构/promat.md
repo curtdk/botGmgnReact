@@ -162,3 +162,138 @@ const isPending = t.score === undefined;
 // 检查中（灰色斜体）/ 正常标签
 {isPending ? '检查中' : (t.label || '散户')}
 ```
+
+---
+
+## 开始/停止 + Mint 锁定机制
+
+### 核心状态变量（App.jsx）
+
+| 变量 | 类型 | 说明 |
+|------|------|------|
+| `isStarted` | `boolean` | 是否已点击"开始"，控制所有业务数据的接收和处理 |
+| `startedMint` | `string` | 点击"开始"时锁定的代币地址 |
+| `startStage` | `string` | 当前阶段描述（"就绪" / "获取数据中..." / "运行中 · 实时监听" 等） |
+| `hookUrlReady` | `null \| true \| false` | `null`=待检查 / `true`=Hook可用 / `false`=无缓存 |
+| `isStartedRef` | `useRef` | `isStarted` 的 ref 版，防止定时器/消息闭包读取旧值 |
+| `startedMintRef` | `useRef` | `startedMint` 的 ref 版，同上 |
+| `pageMintRef` | `useRef` | `pageMint` 的 ref 版，供 `handleStorageChange` 闭包内使用 |
+
+### 核心函数（App.jsx）
+
+| 函数 | 触发 | 行为 |
+|------|------|------|
+| `handleStart()` | 点击"▶ 开始" | 锁定 `startedMint = pageMint`，发 `LOCK_MINT` 到 content script，启动 Helius，触发全量刷新 |
+| `handleStop()` | 点击"⏹ 停止" | 清空 `startedMint`，发 `UNLOCK_MINT` 到 content script，停止所有定时器，停止 Helius |
+| `initPageLogic(mint)` | URL 变化检测到新 mint | 若已启动（`isStartedRef.current = true`）则直接 `return`（不中断业务）；未启动才重置状态 |
+
+### 业务守卫（App.jsx 消息处理）
+
+| 消息类型 | 守卫条件 | 守卫作用 |
+|----------|----------|---------|
+| `UI_RENDER_DATA` | `request.mint !== startedMintRef.current` | 拦截其他 mint 的 holder 数据，不更新用户列表 |
+| `HELIUS_METRICS_UPDATE` | `request.mint !== startedMintRef.current` | 拦截其他 mint 的四大指标和实时交易列表 |
+| `HELIUS_STATS_UPDATE` | `request.mint !== startedMintRef.current` | 拦截其他 mint 的 sig 统计 |
+| `HELIUS_METRICS_CLEAR` | `isStartedRef.current === true` | 已启动时忽略清空指令（页面切换触发的 clear 不影响启动中的 mint） |
+| `handleFullRefresh` | `isStartedRef.current === false` | 未启动时不发起全量刷新 |
+| `runHookRefresh` | `isStartedRef.current === false` | 未启动时不执行 Hook 定时刷新 |
+
+### lockedMint 锁定机制（HeliusIntegration.js）
+
+**全局属性** `this.lockedMint`（初始为 `null`）
+
+| 消息 | 来源 | 效果 |
+|------|------|------|
+| `LOCK_MINT { mint }` | ���边栏 `handleStart()` → `chrome.tabs.sendMessage` | `lockedMint = mint`，阻止 MutationObserver 触发的自动切换 |
+| `UNLOCK_MINT` | 侧边栏 `handleStop()` → `chrome.tabs.sendMessage` | `lockedMint = null`，恢复自动切换 |
+
+**checkAndInitMonitor() 守卫逻辑**：
+```
+检测到新 mint（MutationObserver 触发）
+  ↓
+if (lockedMint && newMint !== lockedMint)
+  → 记录日志"忽略切换"，直接 return（不切换 monitor）
+  ↓ 否则正常启动新 monitor
+```
+
+### 数据流向（已启动状态）
+
+```
+[页面跳转到 MintB]
+  ↓ MutationObserver 触发 checkAndInitMonitor(MintB)
+  ↓ lockedMint = MintA → 守卫拦截 → return（不切换 monitor）
+
+[GMGN 页面发来 MintB 的 holder 数据]
+  ↓ sendDataToSidepanel() 带 mint: MintA
+  ↓ 侧边栏 UI_RENDER_DATA 守卫：mint 不匹配 → 丢弃
+
+[MetricsEngine 发来 MintA 四大指标]
+  ↓ HELIUS_METRICS_UPDATE 带 mint: MintA → 通过守卫 → 正常更新
+
+[用户点击停止]
+  ↓ UNLOCK_MINT → lockedMint = null
+  ↓ 下次 MutationObserver 触发时可正常切换到新 mint
+```
+
+### Hook URL 自动检测（未启动时）
+
+`handleStorageChange` 监听 `chrome.storage.onChanged`：
+```
+hook.js 写入 gmgn_hook_url_<mint>
+  ↓ handleStorageChange 检测到对应 key 变化
+  ↓ isStarted = false 时：setHookUrlReady(true)，日志"✓ 已自动检测到"
+  ↓ 状态栏从"· 待检查"变为"✓ Hook可用"
+```
+
+### 状态栏显示逻辑
+
+```
+hookUrlReady === null   → "· 待检查"  （灰色，插件刚打开或页面切换后）
+hookUrlReady === true   → "✓ Hook可用" （绿色，可以点击开始）
+hookUrlReady === false  → "⚠ 请刷新页面" （橙色，无缓存且未自动检测到）
+
+startStage：跟随业务阶段动态变化
+  就绪 → 检查 Hook URL... → 获取数据中... → 运行中 · 实时监听
+```
+
+---
+
+## 数据流日志系统（dataFlowLogger）
+
+### 日志来源（Logger.js 颜色分类）
+
+| 来源标识 | 颜色 | 含义 |
+|----------|------|------|
+| `GMGN-Hook` | 紫色 | GMGN 页面 hook 拦截的 holder/trades 数据 |
+| `Helius-WS` | 青色 | Helius WebSocket 实时新 signature |
+| `Helius-API` | 蓝色 | Helius RPC API 拉取 sig 列表和交易详情 |
+| `HeliusMonitor` | 绿色 | 内部评分/计算完成汇总 |
+| `UI-发送` | 橙色 | 向 Sidepanel 发送 holder 数据或 metrics |
+| `锁定控制` | 红色 | mint 锁定/解锁/忽略切换事件 |
+
+### 关键日志节点
+
+| 来源 | 事件 | 位置 | 关键字段 |
+|------|------|------|---------|
+| `GMGN-Hook` | `Holders 接收` | `hookHolderHandler` | 数量、锁定mint、monitor状态 |
+| `GMGN-Hook` | `Trades 接收` | `hookFetchXhrHandler` | 总条数、新增条数、锁定mint |
+| `GMGN-Hook` | `⚠ 丢弃` | 两个 handler | monitor 未启动时 |
+| `Helius-API` | `Sig 列表` | `fetchInitialSignatures` | 总数、缓存数、新增数 |
+| `Helius-API` | `Tx 批量拉取` | `fetchMissingTransactions` | 缓存/API/总需数量 |
+| `Helius-WS` | `新 Sig` | `ws.onmessage` | 每条 WS 实时签名 |
+| `HeliusMonitor` | `评分完成` | `updateHolderData` | holders数/庄家/散户/显示数 |
+| `UI-发送` | `Holders 推送` | `sendDataToSidepanel` | 用户数、庄家/散户、锁定mint |
+| `UI-发送` | `Metrics 推送` | `sendMetricsToUI` | processed数、锁定mint |
+| `锁定控制` | `锁定 Mint` | `LOCK_MINT` 处理 | 锁定的 mint 地址 |
+| `锁定控制` | `解锁 Mint` | `UNLOCK_MINT` 处理 | 原锁定的 mint 地址 |
+| `锁定控制` | `忽略切换` | `checkAndInitMonitor` | 被忽略的 mint + 当前锁定 mint |
+| `锁定控制` | `Monitor 启动` | `checkAndInitMonitor` | 新启动的 mint |
+
+### 涉及文件
+
+| 文件 | 改动 |
+|------|------|
+| `src/utils/Logger.js` | 新增 6 个来源颜色（GMGN-Hook / Helius-WS / Helius-API / UI-发送 / 锁定控制 / HeliusMonitor） |
+| `src/content/HeliusIntegration.js` | 添加 `lockedMint`，处理 LOCK/UNLOCK_MINT，清理旧日志，添加 10 个关键日志节点 |
+| `src/helius/HeliusMonitor.js` | `updateHolderData` 8条步骤日志 → 1条汇总，添加 WS/API 日志节点 |
+| `src/sidepanel/App.jsx` | 开始/停止按钮，状态栏，业务守卫，LOCK_MINT/UNLOCK_MINT 消息发送 |

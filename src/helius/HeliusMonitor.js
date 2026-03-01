@@ -1,11 +1,12 @@
 /**
- * HeliusMonitor - 浏览器版 Helius 监控器
+ * HeliusMonitor v2 - 浏览器版 Helius 监控器
  *
- * 功能：
- * 1. 协调所有组件（SignatureManager, DataFetcher, MetricsEngine, CacheManager）
- * 2. 等待 GMGN 分页数据加载完成后开始批量获取
- * 3. 使用浏览器 WebSocket API 监听实时交易
- * 4. 首次倒排序计算，之后实时计算
+ * v2 核心改动：
+ *  1. 并行初始化：Helius sig 获取 + 等待 GMGN 数据 同时进行（不再串行等待）
+ *  2. 流式 sig 获取：每页拿到立即注入 SignatureManager，不等全部完成
+ *  3. 动态 verify 间隔：无新 sig → 放宽间隔；有遗漏 → 缩短间隔
+ *  4. 用户数据（手动标记/隐藏中转）全部走 IndexedDB users 表，不再用 chrome.storage
+ *  5. verifySignatures 只拉最新 50 条（不是 1000 条）
  */
 
 import SignatureManager from './SignatureManager.js';
@@ -20,7 +21,6 @@ export default class HeliusMonitor {
     this.mint = mintAddress;
     this.apiKey = apiKey;
 
-    // 初始化组件
     this.signatureManager = new SignatureManager(mintAddress);
     this.cacheManager = new CacheManager();
     this.metricsEngine = new MetricsEngine();
@@ -34,85 +34,76 @@ export default class HeliusMonitor {
     // 状态
     this.isInitialized = false;
     this.isWaitingForGmgn = true;
-    this.heliusApiEnabled = true;  // Helius API 开关
-    this.heliusFetchedTotal = 0;  // Helius API 实际获取的 sig 原始总数（含缓存）
+    this.heliusApiEnabled = true;
+    this.heliusFetchedTotal = 0;
     this.gmgnDataLoadedResolve = null;
-    this.gmgnDataLoadedReject = null;  // 新增：支持 Promise 取消
+    this.gmgnDataLoadedReject = null;
 
     // 评分配置
-    this.scoreThreshold = 100; // Score< 过滤阈值（默认100）
-    this.statusThreshold = 50; // 状态判断阈值（默认50）
-    this.manualScores = {}; // 手动标记
-    this.bossConfig = {}; // 评分配置
+    this.scoreThreshold = 100;
+    this.statusThreshold = 50;
+    this.manualScores = {};
+    this.bossConfig = {};
 
     // 回调
     this.onMetricsUpdate = null;
     this.onGmgnDataLoaded = null;
 
-    // 生命周期管理
-    this.isStopped = false;           // 停止标志
-    this.reconnectTimeout = null;     // WebSocket 重连定时器
-    this.progressInterval = null;     // 进度定时器
+    // 生命周期
+    this.isStopped = false;
+    this.reconnectTimeout = null;
+    this.progressInterval = null;
 
-    // WebSocket 状态监控
-    this.wsStatus = {
-      connected: false,
-      lastConnectTime: null,
-      lastDisconnectTime: null,
-      reconnectCount: 0,
-      error: null
-    };
-    this.onWsStatusChange = null;     // WS 状态变化回调
+    // WebSocket 状态
+    this.wsStatus = { connected: false, lastConnectTime: null, lastDisconnectTime: null, reconnectCount: 0, error: null };
+    this.onWsStatusChange = null;
 
-    // 定期校验
+    // 动态 verify 状态
     this.verifyInterval = null;
     this.lastVerifyTime = null;
+    this._verifyIntervalMs = 30000; // 初始30s，动态调整
+    this._verifyMissCount = 0;      // 连续0次遗漏计数（用于放宽间隔）
   }
 
-  /**
-   * 启动监控
-   */
+  // ─────────────────────────────────────────────────────────
+  // 启动
+  // ─────────────────────────────────────────────────────────
+
   async start() {
-    console.log(`\n--- 启动 Helius 浏览器监控系统 ---`);
-    console.log(`目标代币 (Mint): ${this.mint}`);
+    console.log(`\n--- 启动 HeliusMonitor v2 ---`);
+    console.log(`Mint: ${this.mint}`);
 
     try {
       // 1. 初始化缓存
       await this.cacheManager.init();
-      if (this.isStopped) throw new Error('Stopped during cache init');
+      if (this.isStopped) throw new Error('Stopped');
 
-      // 2. 连接 WebSocket（开始收集实时 signatures）
+      // 2. 从 IndexedDB 加载手动标记（替代 chrome.storage）
+      this.manualScores = await this.cacheManager.loadManualScores(this.mint);
+      console.log(`[初始化] 加载手动标记: ${Object.keys(this.manualScores).length} 条`);
+
+      // 3. 连接 WebSocket
       this.connectWs();
-      if (this.isStopped) throw new Error('Stopped during WebSocket connect');
+      if (this.isStopped) throw new Error('Stopped');
 
-      // 3. 获取初始 signature 列表
-      await this.fetchInitialSignatures();
-      if (this.isStopped) throw new Error('Stopped during initial fetch');
+      // 4. ── 并行：Helius sig 获取 + 等待 GMGN 数据 ──
+      await this._parallelFetchAndWait();
+      if (this.isStopped) throw new Error('Stopped');
 
-      // 4. 等待 GMGN 分页数据加载完成
-      await this.waitForGmgnData();
-      if (this.isStopped) throw new Error('Stopped during GMGN wait');
-
-      // 5. 批量获取缺失的交易
+      // 5. 补全缺失 tx 详情
       await this.fetchMissingTransactions();
-      if (this.isStopped) throw new Error('Stopped during missing fetch');
+      if (this.isStopped) throw new Error('Stopped');
 
       // 6. 首次计算
       await this.performInitialCalculation();
-      if (this.isStopped) throw new Error('Stopped during initial calculation');
+      if (this.isStopped) throw new Error('Stopped');
 
       // 7. 进入实时模式
       this.isInitialized = true;
-      console.log('\n[系统] 进入实时模式，开始监听新交易...\n');
+      console.log('\n[系统] 进入实时模式\n');
 
-      // 8. 启动定期校验
-      const verifyIntervalSec = this.bossConfig?.verify_interval_sec || 30;
-      this.verifyInterval = setInterval(() => {
-        if (!this.isStopped && this.isInitialized) {
-          this.verifySignatures();
-        }
-      }, verifyIntervalSec * 1000);
-      console.log(`[校验] 定期校验已启动 (间隔: ${verifyIntervalSec}秒)`);
+      // 8. 启动动态 verify
+      this._scheduleNextVerify();
 
     } catch (error) {
       if (this.isStopped) {
@@ -124,57 +115,118 @@ export default class HeliusMonitor {
     }
   }
 
-  /**
-   * 连接 WebSocket
-   */
-  connectWs() {
-    // 检查 API 开关
-    if (!this.heliusApiEnabled) {
-      console.log('[WebSocket] Helius API 已禁用，跳过 WebSocket 连接');
-      return;
+  // ─────────────────────────────────────────────────────────
+  // 并行：Helius sig 流式获取 + 等待 GMGN
+  // ─────────────────────────────────────────────────────────
+
+  async _parallelFetchAndWait() {
+    console.log('[并行] 开始：Helius sig 流式获取 + 等待 GMGN 数据');
+
+    // GMGN 等待 Promise
+    this.signatureManager.startWaitPeriod();
+    this.isWaitingForGmgn = true;
+
+    const gmgnPromise = new Promise((resolve, reject) => {
+      this.gmgnDataLoadedResolve = resolve;
+      this.gmgnDataLoadedReject = reject;
+    });
+
+    // 60s 超时保护
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 60000));
+
+    // 进度日志
+    const startTime = Date.now();
+    this.progressInterval = setInterval(() => {
+      if (this.isStopped) { clearInterval(this.progressInterval); return; }
+      const stats = this.signatureManager.getStats();
+      console.log(`[等待] ${((Date.now() - startTime) / 1000).toFixed(0)}s | sigs=${stats.total} 有数据=${stats.hasData}`);
+    }, 5000);
+
+    this.onGmgnDataLoaded = () => {
+      if (this.isStopped) return;
+      if (this.gmgnDataLoadedResolve) this.gmgnDataLoadedResolve();
+    };
+
+    // Helius sig 流式获取（并行启动，不阻塞 GMGN 等待）
+    const heliusFetchPromise = this.heliusApiEnabled
+      ? this._fetchSigsStreaming()
+      : Promise.resolve({ totalNew: 0, totalCached: 0 });
+
+    // 等待 GMGN 或超时
+    const gmgnResult = await Promise.race([gmgnPromise, timeoutPromise]);
+    clearInterval(this.progressInterval);
+
+    if (gmgnResult === 'timeout') {
+      console.warn('[并行] GMGN 等待超时，继续执行');
+    } else {
+      console.log('[并行] GMGN 数据加载完成');
     }
 
-    // 检查停止标志
-    if (this.isStopped) {
-      console.log('[WebSocket] 实例已停止，取消连接');
-      return;
-    }
+    // 等待 Helius 流式获取完成（通常此时早已完成）
+    const fetchResult = await heliusFetchPromise;
+    this.heliusFetchedTotal = fetchResult.totalNew + fetchResult.totalCached;
+
+    this.signatureManager.endWaitPeriod();
+    this.isWaitingForGmgn = false;
+
+    const stats = this.signatureManager.getStats();
+    dataFlowLogger.log('Helius-API', 'Sig 列表', `总计 ${stats.total} (新增=${fetchResult.totalNew} 缓存=${fetchResult.totalCached}) | mint: ${this.mint.slice(0, 8)}...`,
+      { total: stats.total, newSigs: fetchResult.totalNew, cached: fetchResult.totalCached, mint: this.mint }
+    );
+  }
+
+  /**
+   * Helius sig 流式获取（每页回调注入 SignatureManager）
+   */
+  async _fetchSigsStreaming() {
+    if (!this.heliusApiEnabled) return { totalNew: 0, totalCached: 0 };
+
+    return this.dataFetcher.fetchHistorySigsStreaming(this.mint, (rawSigs, pageIndex, isLast) => {
+      if (this.isStopped) return;
+
+      // 每页立即注入 SignatureManager（带 slot/blockTime 元数据）
+      this.signatureManager.addSignatureBatch(rawSigs, 'initial');
+
+      if (pageIndex === 1) {
+        // 第一页到来，立即通知 UI sig 总数
+        if (this.onStatsUpdate) {
+          try { this.onStatsUpdate(this.signatureManager.getStats()); } catch (e) { /* ignore */ }
+        }
+      }
+
+      if (isLast) {
+        console.log(`[流式] Helius sig 获取完成，共 ${pageIndex} 页`);
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // WebSocket
+  // ─────────────────────────────────────────────────────────
+
+  connectWs() {
+    if (!this.heliusApiEnabled || this.isStopped) return;
 
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      try { this.ws.close(); } catch (_e) { /* ignore */ }
     }
 
     console.log('[WebSocket] 连接中...');
     this.ws = new WebSocket(`wss://mainnet.helius-rpc.com/?api-key=${this.apiKey}`);
 
     this.ws.onopen = () => {
-      if (this.isStopped) return;  // 检查停止标志
-
-      console.log('[WebSocket] 已连接，开始订阅实时日志...');
-
-      // 更新状态
-      this.wsStatus.connected = true;
-      this.wsStatus.lastConnectTime = Date.now();
-      this.wsStatus.error = null;
+      if (this.isStopped) return;
+      console.log('[WebSocket] 已连接，订阅实时日志...');
+      this.wsStatus = { ...this.wsStatus, connected: true, lastConnectTime: Date.now(), error: null };
       this.notifyWsStatusChange();
 
-      const request = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "logsSubscribe",
-        params: [
-          { "mentions": [this.mint] },
-          { "commitment": "confirmed" }
-        ]
-      };
-      this.ws.send(JSON.stringify(request));
+      this.ws.send(JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'logsSubscribe',
+        params: [{ mentions: [this.mint] }, { commitment: 'confirmed' }]
+      }));
 
-      // 心跳
       this.pingInterval = setInterval(() => {
-        if (this.isStopped) {
-          clearInterval(this.pingInterval);
-          return;
-        }
+        if (this.isStopped) { clearInterval(this.pingInterval); return; }
         if (this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'ping' }));
         }
@@ -182,8 +234,7 @@ export default class HeliusMonitor {
     };
 
     this.ws.onmessage = (event) => {
-      if (this.isStopped) return;  // 检查停止标志
-
+      if (this.isStopped) return;
       try {
         const msg = JSON.parse(event.data);
         if (msg.method === 'logsNotification') {
@@ -197,347 +248,144 @@ export default class HeliusMonitor {
     };
 
     this.ws.onclose = () => {
-      if (this.isStopped) {
-        console.log('[WebSocket] 实例已停止，不重连');
-        return;
-      }
-
-      console.log('[WebSocket] 连接断开，3秒后重连...');
+      if (this.isStopped) return;
+      console.log('[WebSocket] 断开，3s 后重连...');
       clearInterval(this.pingInterval);
-
-      // 更新状态
-      this.wsStatus.connected = false;
-      this.wsStatus.lastDisconnectTime = Date.now();
-      this.wsStatus.reconnectCount++;
+      this.wsStatus = { ...this.wsStatus, connected: false, lastDisconnectTime: Date.now(), reconnectCount: this.wsStatus.reconnectCount + 1 };
       this.notifyWsStatusChange();
-
-      // 存储定时器引用
-      this.reconnectTimeout = setTimeout(() => {
-        if (!this.isStopped) {
-          this.connectWs();
-        }
-      }, 3000);
+      this.reconnectTimeout = setTimeout(() => { if (!this.isStopped) this.connectWs(); }, 3000);
     };
 
     this.ws.onerror = (err) => {
       if (this.isStopped) return;
       console.error('[WebSocket] 错误:', err);
-
-      // 更新状态
-      this.wsStatus.error = err.message || 'WebSocket 连接错误';
+      this.wsStatus = { ...this.wsStatus, error: err.message || 'WebSocket 连接错误' };
       this.notifyWsStatusChange();
     };
   }
 
-  /**
-   * 获取初始 signature 列表
-   */
-  async fetchInitialSignatures() {
-    console.log('[初始化] 获取 signature 列表...');
+  // ─────────────────────────────────────────────────────────
+  // 补全缺失 tx 详情
+  // ─────────────────────────────────────────────────────────
 
-    const { allSigs, newSigs, cachedSigs } = await this.dataFetcher.fetchHistorySigs(this.mint);
-
-    // 记录 Helius 实际获取的 sig 原始总数（缓存 + 新增）
-    this.heliusFetchedTotal = allSigs.length;
-
-    // 添加所有 signatures 到 SignatureManager
-    allSigs.forEach(sig => {
-      this.signatureManager.addSignature(sig, 'initial');
-    });
-
-    dataFlowLogger.log('Helius-API', 'Sig 列表', `总计 ${allSigs.length} (缓存=${cachedSigs.length} 新增=${newSigs.length}) | mint: ${this.mint.slice(0, 8)}...`, { total: allSigs.length, cached: cachedSigs.length, newSigs: newSigs.length, mint: this.mint });
-
-    // 立即通知 UI sig 总数已就绪
-    if (this.onStatsUpdate) {
-      try {
-        this.onStatsUpdate(this.signatureManager.getStats());
-      } catch (e) {
-        console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
-      }
-    }
-  }
-
-  /**
-   * 等待 GMGN 分页数据加载完成
-   */
-  async waitForGmgnData() {
-    console.log('[等待] 检查 GMGN 分页数据状态...');
-
-    // [新增] 智能检查：如果大部分数据已经加载，跳过等待
-    const stats = this.signatureManager.getStats();
-    if (stats.total > 0) {
-      const dataLoadedPercent = (stats.hasData / stats.total) * 100;
-      console.log(`[等待] 当前数据状态: ${stats.hasData}/${stats.total} (${dataLoadedPercent.toFixed(1)}%)`);
-
-      // 如果超过 80% 的数据已加载，认为 GMGN 数据已经就绪
-      if (dataLoadedPercent >= 80) {
-        console.log('[等待] ✓ GMGN 数据已基本加载完成，跳过等待');
-        return;
-      }
-    }
-
-    console.log('[等待] 等待 GMGN 分页数据加载完成...');
-    this.signatureManager.startWaitPeriod();
-    this.isWaitingForGmgn = true;
-
-    const startTime = Date.now();
-    const TIMEOUT_MS = 60000; // 60秒超时
-
-    // 设置回调，当 GMGN 数据加载完成时调用
-    const gmgnDataPromise = new Promise((resolve, reject) => {
-      this.gmgnDataLoadedResolve = resolve;
-      this.gmgnDataLoadedReject = reject;  // 支持取消
-    });
-
-    // 超时保护
-    const timeoutPromise = new Promise((resolve) => {
-      setTimeout(() => {
-        resolve('timeout');
-      }, TIMEOUT_MS);
-    });
-
-    // 进度更新 - 存储定时器引用
-    this.progressInterval = setInterval(() => {
-      if (this.isStopped) {
-        clearInterval(this.progressInterval);
-        return;
-      }
-
-      const elapsed = Date.now() - startTime;
-      const stats = this.signatureManager.getStats();
-
-      console.log(`[等待] ${(elapsed / 1000).toFixed(0)}秒 | ` +
-                  `总数: ${stats.total} | 有数据: ${stats.hasData} | ` +
-                  `需获取: ${stats.needFetch}`);
-
-      // 如果等待超过30秒，输出警告
-      if (elapsed > 30000 && elapsed % 10000 < 5000) {
-        console.warn('[等待] ⚠️ 等待时间较长，请检查 GMGN 数据是否正在加载...');
-      }
-    }, 5000);
-
-    // 设置 onGmgnDataLoaded 回调
-    this.onGmgnDataLoaded = () => {
-      if (this.isStopped) return;
-
-      console.log('[等待] 收到 GMGN 数据加载完成通知');
-      if (this.gmgnDataLoadedResolve) {
-        this.gmgnDataLoadedResolve();
-      }
-    };
-
-    // 等待 GMGN 数据加载完成、超时或实例停止
-    try {
-      const result = await Promise.race([gmgnDataPromise, timeoutPromise]);
-      clearInterval(this.progressInterval);
-
-      if (result === 'timeout') {
-        const duration = Date.now() - startTime;
-        console.warn(`[等待] ⚠️ 等待超时（${(duration / 1000).toFixed(1)}秒），继续执行...`);
-        console.warn('[等待] 提示：GMGN 数据可能未完全加载，后续计算可能不完整');
-      } else {
-        const duration = Date.now() - startTime;
-        console.log(`[等待] GMGN 数据加载完成，耗时 ${(duration / 1000).toFixed(1)} 秒`);
-      }
-
-      this.signatureManager.endWaitPeriod();
-      this.isWaitingForGmgn = false;
-    } catch (err) {
-      // 实例被停止
-      clearInterval(this.progressInterval);
-      console.log('[等待] 等待被中断（实例已停止）');
-      throw err;
-    }
-  }
-
-  /**
-   * 批量获取缺失的交易
-   */
   async fetchMissingTransactions() {
-    // 检查 API 开关
-    if (!this.heliusApiEnabled) {
-      console.log('[获取] Helius API 已禁用，跳过批量获取');
-      return;
-    }
-
-    if (this.isStopped) {
-      console.log('[获取] 实例已停止，跳过获取');
-      return;
-    }
+    if (!this.heliusApiEnabled || this.isStopped) return;
 
     const missingSigs = this.signatureManager.getMissingSignatures();
-
     if (missingSigs.length === 0) {
-      console.log('[获取] 无需获取，所有数据已收集！');
+      console.log('[获取] 无需补全，所有数据已就绪');
       return;
     }
 
-    console.log(`[获取] 需要获取 ${missingSigs.length} 个交易...`);
+    console.log(`[获取] 需补全 ${missingSigs.length} 个交易...`);
 
-    // 1. 先从缓存加载
+    // 先从缓存加载
     const cachedTxs = await this.cacheManager.loadTransactionsBySignatures(missingSigs);
-
-    if (this.isStopped) return;  // 检查停止标志
+    if (this.isStopped) return;
 
     cachedTxs.forEach(tx => {
       const sig = tx.transaction.signatures[0];
       this.signatureManager.markHasData(sig, tx);
     });
 
-    // 2. 获取仍然缺失的
+    // 从 API 获取仍缺失的
     const stillMissing = this.signatureManager.getMissingSignatures();
+    if (stillMissing.length === 0) return;
 
-    if (stillMissing.length > 0) {
-      let fetchedCount = 0;
-
-      // 批量获取
-      const CHUNK_SIZE = 100;
-      for (let i = 0; i < stillMissing.length; i += CHUNK_SIZE) {
-        if (this.isStopped) {
-          console.log('[获取] 实例已停止，中断获取');
-          return;
-        }
-
-        const chunk = stillMissing.slice(i, i + CHUNK_SIZE);
-        const txs = await this.dataFetcher.fetchParsedTxs(chunk, this.mint);
-
-        if (this.isStopped) return;  // 再次检查
-
-        // 标记为已有数据
-        txs.forEach(tx => {
-          const sig = tx.transaction.signatures[0];
-          this.signatureManager.markHasData(sig, tx);
-        });
-
-        fetchedCount += txs.length;
-      }
-
-      dataFlowLogger.log('Helius-API', 'Tx 批量拉取', `缓存=${cachedTxs.length} API=${fetchedCount} 共需=${missingSigs.length} | mint: ${this.mint.slice(0, 8)}...`, { cached: cachedTxs.length, fetched: fetchedCount, total: missingSigs.length, mint: this.mint });
+    let fetchedCount = 0;
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < stillMissing.length; i += CHUNK_SIZE) {
+      if (this.isStopped) return;
+      const chunk = stillMissing.slice(i, i + CHUNK_SIZE);
+      const txs = await this.dataFetcher.fetchParsedTxs(chunk, this.mint);
+      if (this.isStopped) return;
+      txs.forEach(tx => {
+        const sig = tx.transaction.signatures[0];
+        this.signatureManager.markHasData(sig, tx);
+      });
+      fetchedCount += txs.length;
     }
+
+    dataFlowLogger.log('Helius-API', 'Tx 补全', `缓存=${cachedTxs.length} API=${fetchedCount} 共需=${missingSigs.length} | mint: ${this.mint.slice(0, 8)}...`,
+      { cached: cachedTxs.length, fetched: fetchedCount, total: missingSigs.length }
+    );
   }
 
-  /**
-   * 首次计算（20 秒后，倒排序）
-   */
+  // ─────────────────────────────────────────────────────────
+  // 首次计算
+  // ─────────────────────────────────────────────────────────
+
   async performInitialCalculation() {
-    if (this.isStopped) {
-      console.log('[首次计算] 实例已停止，跳过计算');
-      return;
-    }
+    if (this.isStopped) return;
 
-    // 获取准备计算的 signatures（有数据但未处理）
     const readySignatures = this.signatureManager.getReadySignatures();
-
     if (readySignatures.length === 0) {
       console.log('[首次计算] 没有可处理的交易');
       return;
     }
 
-    // 使用改进的日志格式
-    console.log('\n' + '='.repeat(100));
-    console.log('[阶段 1] 首次计算开始');
-    console.log('='.repeat(100));
-    console.log('📊 数据概览:');
-    console.log(`   - 总交易数: ${readySignatures.length} 笔`);
-    console.log(`   - 处理顺序: 按时间倒序（从最早到最新）`);
-    console.log(`   - 数据来源: Helius API`);
-    console.log('   - 计算基础: 每个用户的全部历史交易数据');
-    console.log('');
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`[首次计算] 开始处理 ${readySignatures.length} 笔交易（按时间正序）`);
+    console.log('='.repeat(60));
 
-    // 设置总交易数（用于显示进度）
     this.metricsEngine.setTotalTransactions(readySignatures.length);
 
-    // 按顺序处理每个交易
     for (const item of readySignatures) {
-      if (this.isStopped) {
-        console.log('[首次计算] 实例已停止，中断计算');
-        return;
-      }
-
+      if (this.isStopped) return;
       this.metricsEngine.processTransaction(item.txData, this.mint);
       this.signatureManager.markProcessed(item.sig);
     }
 
-    console.log('\n' + '='.repeat(100));
-    console.log('[阶段 1] 首次计算完成');
-    console.log('='.repeat(100));
-    console.log('📈 阶段总结:');
-    console.log(`   ✓ 处理交易数: ${readySignatures.length} 笔`);
-    console.log(`   ✓ 数据完整性: 每个用户的计算基于其全部历史交易`);
-    console.log('');
-
-    // 打印简要指标
+    console.log(`[首次计算] 完成，处理 ${readySignatures.length} 笔`);
     this.metricsEngine.printMetrics();
-
-    // 打印详细指标（包含每个用户的计算明细）
     this.metricsEngine.printDetailedMetrics();
 
-    // 触发回调
     if (this.onMetricsUpdate && !this.isStopped) {
       this.onMetricsUpdate(this.metricsEngine.getMetrics());
     }
   }
 
-  /**
-   * 处理新 signature
-   */
-  async handleNewSignature(sig, source) {
-    if (this.isStopped) return;  // 立即返回
+  // ─────────────────────────────────────────────────────────
+  // 实时处理新 sig
+  // ─────────────────────────────────────────────────────────
 
-    // 添加到 SignatureManager
+  async handleNewSignature(sig, source) {
+    if (this.isStopped) return;
+
     this.signatureManager.addSignature(sig, source);
 
-    // 如果在等待 GMGN 数据，不处理
-    if (this.isWaitingForGmgn) {
-      return;
-    }
+    if (this.isWaitingForGmgn || !this.isInitialized) return;
+    if (this.signatureManager.isProcessedSig(sig)) return;
 
-    // 如果未初始化，不处理
-    if (!this.isInitialized) {
-      return;
-    }
-
-    // 检查是否已处理
-    if (this.signatureManager.isProcessedSig(sig)) {
-      console.log(`[跳过] 交易已处理: ${sig}`);
-      return;
-    }
-
-    // 检查是否有数据
     if (!this.signatureManager.hasData(sig)) {
-      // 获取交易详情
-      console.log(`[实时] 获取新交易: ${sig}`);
+      console.log(`[实时] 获取新交易: ${sig.slice(0, 8)}...`);
       const txs = await this.dataFetcher.fetchParsedTxs([sig], this.mint);
-
-      if (this.isStopped) return;  // 检查停止标志
-
+      if (this.isStopped) return;
       if (txs.length > 0) {
         this.signatureManager.markHasData(sig, txs[0]);
       } else {
-        console.error(`[实时] 获取交易失败: ${sig}`);
+        console.error(`[实时] 获取失败: ${sig}`);
         return;
       }
     }
 
-    if (this.isStopped) return;  // 再次检查
+    if (this.isStopped) return;
 
-    // 处理交易
     const state = this.signatureManager.getState(sig);
-    if (state && state.hasData && !state.isProcessed) {
+    if (state?.hasData && !state.isProcessed) {
       this.metricsEngine.processTransaction(state.txData, this.mint);
       this.signatureManager.markProcessed(sig);
+      // 同步更新 IndexedDB sig 状态
+      this.cacheManager.updateSigStatus(sig, { isProcessed: true }).catch(() => {});
 
-      console.log(`[实时] 处理新交易: ${sig}`);
-
-      // 打印指标
+      console.log(`[实时] 处理新交易: ${sig.slice(0, 8)}...`);
       this.metricsEngine.printMetrics();
 
-      // 触发回调
       if (this.onMetricsUpdate && !this.isStopped) {
         this.onMetricsUpdate(this.metricsEngine.getMetrics());
       }
 
-      // 检测是否有尚未评分的地址，触发快速评分
+      // 检查是否需要快速评分
       const txAddr = state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
       if (txAddr && this.metricsEngine.traderStats[txAddr]?.score === undefined) {
         this._scheduleQuickScore();
@@ -545,292 +393,155 @@ export default class HeliusMonitor {
     }
   }
 
-  /**
-   * 设置 Helius API 开关
-   * 设置 Helius API Key
-   */
-  setApiKey(key) {
-    this.apiKey = key || '';
-    this.dataFetcher.setApiKey(this.apiKey);
-    console.log('[HeliusMonitor] API Key 已更新');
-  }
+  // ─────────────────────────────────────────────────────────
+  // 动态 verify（替代固定30s间隔）
+  // ─────────────────────────────────────────────────────────
 
-  /**
-   * @param {boolean} enabled - 是否启用 Helius API
-   */
-  setHeliusApiEnabled(enabled) {
-    this.heliusApiEnabled = enabled;
-    console.log(`[HeliusMonitor] Helius API 调用: ${enabled ? '启用' : '禁用'}`);
-
-    // 如果禁用，停止 WebSocket
-    if (!enabled && this.ws) {
-      console.log('[HeliusMonitor] 关闭 WebSocket 连接');
-      this.ws.close();
-      this.ws = null;
-    }
-
-    // 如果启用，重新连接 WebSocket
-    if (enabled && !this.ws && this.isInitialized) {
-      console.log('[HeliusMonitor] 重新连接 WebSocket');
-      this.connectWs();
-    }
-
-    // 如果启用且已初始化，检查并补全缺失的交易
-    if (enabled && this.isInitialized) {
-      const stats = this.signatureManager.getStats();
-      if (stats.needFetch > 0) {
-        console.log(`[HeliusMonitor] 检测到 ${stats.needFetch} 个缺失交易，开始补全...`);
-        this.fetchMissingTransactions()
-          .then(() => this.performInitialCalculation())
-          .then(() => {
-            if (this.onStatsUpdate) {
-              try {
-                this.onStatsUpdate(this.signatureManager.getStats());
-              } catch (e) {
-                console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
-              }
-            }
-            console.log('[HeliusMonitor] 缺失交易补全完成');
-          })
-          .catch(err => {
-            console.error('[HeliusMonitor] 补全失败:', err.message);
-          });
+  _scheduleNextVerify() {
+    if (this.isStopped) return;
+    const interval = this._verifyIntervalMs;
+    this.verifyInterval = setTimeout(() => {
+      if (!this.isStopped && this.isInitialized) {
+        this.verifySignatures().finally(() => {
+          if (!this.isStopped) this._scheduleNextVerify();
+        });
       }
+    }, interval);
+    console.log(`[校验] 下次校验: ${(interval / 1000).toFixed(0)}s 后`);
+  }
+
+  async verifySignatures() {
+    if (this.isStopped) return;
+    const startTime = Date.now();
+    console.log('[校验] 开始校验...');
+
+    try {
+      // 动态拉取数量：默认50条，有遗漏时拉200条
+      const fetchLimit = this._verifyMissCount > 0 ? 200 : 50;
+      const latestSigs = await this.dataFetcher.fetchLatestSigsForVerify(this.mint, fetchLimit);
+      if (this.isStopped) return;
+
+      let newCount = 0;
+      const newSigsToFetch = [];
+
+      latestSigs.forEach(rawSig => {
+        const sig = rawSig.signature;
+        if (!this.signatureManager.signatures.has(sig)) {
+          // 新发现的 sig，用 Helius 元数据添加
+          this.signatureManager.addSignature(rawSig, 'verify');
+          newSigsToFetch.push(sig);
+          newCount++;
+        } else {
+          // 已有的 sig，补充/更新 slot 信息（用于顺序验证）
+          this.signatureManager.updateSigOrder(sig, rawSig.slot, rawSig.blockTime);
+          // 同时更新 IndexedDB
+          this.cacheManager.saveSig(this.mint, sig, {
+            slot: rawSig.slot, blockTime: rawSig.blockTime, source: 'helius'
+          }).catch(() => {});
+        }
+      });
+
+      // 动态调整间隔
+      if (newCount === 0) {
+        this._verifyMissCount = 0;
+        // 连续无遗漏 → 放宽间隔（最大120s）
+        this._verifyIntervalMs = Math.min(this._verifyIntervalMs * 1.5, 120000);
+      } else {
+        this._verifyMissCount++;
+        // 有遗漏 → 缩短间隔（最小10s）
+        this._verifyIntervalMs = Math.max(10000, this._verifyIntervalMs / 2);
+      }
+
+      if (newCount > 0) {
+        console.log(`[校验] 发现 ${newCount} 个遗漏 sig，补全中...`);
+        const txs = await this.dataFetcher.fetchParsedTxs(newSigsToFetch, this.mint);
+        if (this.isStopped) return;
+
+        for (const tx of txs) {
+          if (this.isStopped) return;
+          const sig = tx.transaction.signatures[0];
+          this.signatureManager.markHasData(sig, tx);
+          this.metricsEngine.processTransaction({ type: 'helius', data: tx }, this.mint);
+          this.signatureManager.markProcessed(sig);
+        }
+
+        console.log(`[校验] 补全 ${newCount} 个遗漏交易，耗时 ${Date.now() - startTime}ms`);
+
+        if (this.onMetricsUpdate && !this.isStopped) {
+          this.onMetricsUpdate(this.metricsEngine.getMetrics());
+        }
+      } else {
+        console.log(`[校验] 无遗漏 (耗时 ${Date.now() - startTime}ms) → 下次间隔 ${(this._verifyIntervalMs / 1000).toFixed(0)}s`);
+      }
+
+      this.lastVerifyTime = Date.now();
+
+      if (this.onStatsUpdate) {
+        try { this.onStatsUpdate(this.signatureManager.getStats()); } catch (_e) { /* ignore */ }
+      }
+
+    } catch (error) {
+      if (this.isStopped) return;
+      console.error('[校验] 失败:', error.message);
     }
   }
 
-  /**
-   * 停止监控
-   */
-  stop() {
-    console.log('[系统] 正在停止监控...');
+  // ─────────────────────────────────────────────────────────
+  // 停止
+  // ─────────────────────────────────────────────────────────
 
-    // 1. 设置停止标志（最先执行）
+  stop() {
+    console.log('[系统] 停止监控...');
     this.isStopped = true;
 
-    // 2. 清理 WebSocket
     if (this.ws) {
-      // 移除事件监听器，防止 onclose 触发重连
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-
-      try {
-        this.ws.close();
-      } catch (e) {
-        console.error('[系统] 关闭 WebSocket 失败:', e);
-      }
+      this.ws.onopen = this.ws.onmessage = this.ws.onclose = this.ws.onerror = null;
+      try { this.ws.close(); } catch (_e) { /* ignore */ }
       this.ws = null;
     }
 
-    // 3. 清理所有定时器
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
+    clearInterval(this.pingInterval);
+    clearTimeout(this.reconnectTimeout);
+    clearInterval(this.progressInterval);
+    clearTimeout(this.verifyInterval);   // verifyInterval 现在是 setTimeout 返回值
 
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
+    this.pingInterval = null;
+    this.reconnectTimeout = null;
+    this.progressInterval = null;
+    this.verifyInterval = null;
 
-    if (this.progressInterval) {
-      clearInterval(this.progressInterval);
-      this.progressInterval = null;
-    }
-
-    if (this.verifyInterval) {
-      clearInterval(this.verifyInterval);
-      this.verifyInterval = null;
-    }
-
-    // 4. 取消等待中的 Promise
     if (this.gmgnDataLoadedReject) {
       this.gmgnDataLoadedReject(new Error('Monitor stopped'));
       this.gmgnDataLoadedResolve = null;
       this.gmgnDataLoadedReject = null;
     }
 
-    // 5. 清理回调
     this.onGmgnDataLoaded = null;
     this.onMetricsUpdate = null;
-
-    // 6. 重置状态标志
     this.isInitialized = false;
     this.isWaitingForGmgn = false;
 
-    // 7. 清理数据结构
-    if (this.signatureManager) {
-      this.signatureManager.clear();
-    }
-    if (this.metricsEngine) {
-      this.metricsEngine.reset();
-    }
-
-    // 8. 关闭缓存管理器
+    if (this.signatureManager) this.signatureManager.clear();
+    if (this.metricsEngine) this.metricsEngine.reset();
     if (this.cacheManager) {
-      try {
-        this.cacheManager.close();
-      } catch (e) {
-        console.error('[系统] 关闭缓存管理器失败:', e);
-      }
+      try { this.cacheManager.close(); } catch (_e) { /* ignore */ }
     }
 
-    console.log('[系统] 监控已完全停止');
+    console.log('[系统] 监控已停止');
   }
 
-  /**
-   * 获取当前指标
-   */
-  getMetrics() {
-    return this.metricsEngine.getMetrics();
-  }
+  // ─────────────────────────────────────────────────────────
+  // Holder 数据更新 + 评分
+  // ─────────────────────────────────────────────────────────
 
-  /**
-   * 获取统计信息
-   */
-  getStats() {
-    const stats = this.signatureManager.getStats();
-    stats.heliusFetchedTotal = this.heliusFetchedTotal;  // Helius API 实际拉取总数（含缓存）
-    return stats;
-  }
-
-  /**
-   * 通知 WebSocket 状态变化
-   */
-  notifyWsStatusChange() {
-    if (this.onWsStatusChange) {
-      this.onWsStatusChange(this.getWsStatus());
-    }
-  }
-
-  /**
-   * 获取 WebSocket 状态
-   */
-  getWsStatus() {
-    return {
-      ...this.wsStatus,
-      uptime: this.wsStatus.connected && this.wsStatus.lastConnectTime
-        ? Date.now() - this.wsStatus.lastConnectTime
-        : 0
-    };
-  }
-
-  /**
-   * 获取校验状态
-   */
-  getVerifyStatus() {
-    return {
-      enabled: !!this.verifyInterval,
-      lastVerifyTime: this.lastVerifyTime,
-      timeSinceLastVerify: this.lastVerifyTime
-        ? Date.now() - this.lastVerifyTime
-        : null
-    };
-  }
-
-  /**
-   * 更新庄家地址列表（从 HeliusIntegration 调用）
-   * @param {Set} whaleAddresses - 庄家地址集合
-   */
-  updateWhaleAddresses(whaleAddresses) {
-    console.log(`[HeliusMonitor] 更新庄家地址列表: ${whaleAddresses ? whaleAddresses.size : 0} 个庄家`);
-
-    // 传递给 MetricsEngine
-    if (this.metricsEngine) {
-      this.metricsEngine.updateWhaleAddresses(whaleAddresses);
-    }
-  }
-
-  /**
-   * 定期校验 signatures 完整性
-   * 每30秒检查一次是否有遗漏的 signatures
-   */
-  async verifySignatures() {
-    if (this.isStopped) return;
-
-    const startTime = Date.now();
-    console.log('[校验] 开始校验 signatures...');
-
-    try {
-      // 只获取最新的 1000 个 signatures
-      const latestSigs = await this.dataFetcher.fetchSignatures(this.mint, {
-        limit: 1000
-      });
-
-      if (this.isStopped) return;
-
-      // 检查是否有新的 signatures
-      let newCount = 0;
-      const newSigs = [];
-
-      latestSigs.forEach(sig => {
-        if (!this.signatureManager.signatures.has(sig)) {
-          this.signatureManager.addSignature(sig, 'verify');  // 用 verify 源，避免污染 initial 计数
-          newSigs.push(sig);
-          newCount++;
-        }
-      });
-
-      if (newCount > 0) {
-        console.log(`[校验] ⚠️  发现 ${newCount} 个遗漏的 signatures`);
-        console.log(`[校验] 正在补充遗漏的交易数据...`);
-
-        // 获取遗漏交易的详细数据
-        const txs = await this.dataFetcher.fetchParsedTxs(newSigs, this.mint);
-
-        if (this.isStopped) return;
-
-        // 处理遗漏的交易
-        for (const tx of txs) {
-          if (this.isStopped) return;
-
-          const sig = tx.transaction.signatures[0];
-          this.signatureManager.markHasData(sig, tx);
-
-          // 立即计算
-          this.metricsEngine.processTransaction({ type: 'helius', data: tx }, this.mint);
-          this.signatureManager.markProcessed(sig);
-        }
-
-        console.log(`[校验] ✓ 已补充 ${newCount} 个遗漏的交易`);
-      } else {
-        console.log(`[校验] ✓ 没有遗漏 (耗时: ${Date.now() - startTime}ms)`);
-      }
-
-      this.lastVerifyTime = Date.now();
-
-      // 校验完成后推送最新 stats 到 UI
-      if (this.onStatsUpdate) {
-        try {
-          this.onStatsUpdate(this.signatureManager.getStats());
-        } catch (e) {
-          console.warn('[HeliusMonitor] onStatsUpdate 回调异常:', e.message);
-        }
-      }
-
-    } catch (error) {
-      if (this.isStopped) return;
-      console.error('[校验] 校验失败:', error.message);
-    }
-  }
-
-  /**
-   * 更新 holder 数据并执行评分
-   * @param {Array} holders - holder 数据
-   */
   async updateHolderData(holders) {
     try {
-      // 1. 将 holder 快照数据合并进 traderStats（用于评分）
       this.metricsEngine.updateUsersInfo(holders);
 
-      // 步骤1.5b: 隐藏中转检测
       if (this.bossConfig.enable_hidden_relay) {
         await this.detectHiddenRelays();
       }
 
-      // 2. 计算分数
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
         this.metricsEngine.traderStats,
@@ -839,7 +550,7 @@ export default class HeliusMonitor {
         this.statusThreshold
       );
 
-      // 3. 将分数存储到 traderStats
+      // 写入 traderStats
       for (const [address, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
@@ -848,46 +559,46 @@ export default class HeliusMonitor {
         }
       }
 
-      // 4. 根据 scoreThreshold 过滤用户
+      // 异步持久化用户评分到 IndexedDB
+      this._persistUserScores(scoreMap).catch(e =>
+        console.warn('[HeliusMonitor] 持久化用户评分失败:', e.message)
+      );
+
       const filteredUsers = this.filterUsersByScore(scoreMap);
-
-      // 5. 更新庄家地址列表
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
-
-      // 6. 设置过滤后的用户列表
       this.metricsEngine.setFilteredUsers(filteredUsers);
-
-      // 7. 重新计算指标
       this.recalculateMetrics();
 
-      dataFlowLogger.log(
-        'HeliusMonitor',
-        '评分完成',
-        `${holders.length} holders → 庄家:${whaleAddresses.size} 散户:${filteredUsers.size - whaleAddresses.size} | 显示:${filteredUsers.size}`,
-        { holderCount: holders.length, whaleCount: whaleAddresses.size, filteredCount: filteredUsers.size, scoreThreshold: this.scoreThreshold }
+      dataFlowLogger.log('HeliusMonitor', '评分完成',
+        `${holders.length} holders → 庄家:${whaleAddresses.size} 过滤后:${filteredUsers.size}`,
+        { holderCount: holders.length, whaleCount: whaleAddresses.size, filteredCount: filteredUsers.size }
       );
     } catch (error) {
-      console.error('[HeliusMonitor] updateHolderData 执行失败:', error);
+      console.error('[HeliusMonitor] updateHolderData 失败:', error);
     }
   }
 
   /**
-   * 根据分数阈值构建散户集合
-   * 以 traderStats 为基准：有评分的用 score 判断，无评分（纯 sig 用户）默认 score=0 视为散户
+   * 将评分结果异步写入 IndexedDB users 表
    */
+  async _persistUserScores(scoreMap) {
+    for (const [address, scoreData] of scoreMap.entries()) {
+      await this.cacheManager.saveUser(address, this.mint, {
+        score: scoreData.score,
+        status: scoreData.status,
+        reasons: scoreData.reasons
+      });
+    }
+  }
+
   filterUsersByScore(scoreMap) {
     const filtered = new Set();
-    const traderStats = this.metricsEngine.traderStats;
-
-    for (const address of Object.keys(traderStats)) {
+    for (const address of Object.keys(this.metricsEngine.traderStats)) {
       const score = scoreMap.get(address)?.score ?? 0;
-      if (score < this.scoreThreshold) {
-        filtered.add(address);
-      }
+      if (score < this.scoreThreshold) filtered.add(address);
     }
-
-    console.log('[HeliusMonitor] 过滤用户', {
-      traderTotal: Object.keys(traderStats).length,
+    console.log('[HeliusMonitor] 过滤用户:', {
+      total: Object.keys(this.metricsEngine.traderStats).length,
       scored: scoreMap.size,
       filtered: filtered.size,
       threshold: this.scoreThreshold
@@ -895,24 +606,32 @@ export default class HeliusMonitor {
     return filtered;
   }
 
-  /**
-   * 重新计算指标
-   */
   recalculateMetrics() {
     const metrics = this.metricsEngine.getMetrics();
-    console.log('[HeliusMonitor] 重新计算指标', metrics);
-
-    // 触发回调
-    if (this.onMetricsUpdate) {
-      this.onMetricsUpdate(metrics);
-    }
+    if (this.onMetricsUpdate) this.onMetricsUpdate(metrics);
   }
 
-  /**
-   * WS 新交易触发的快速评分（500ms debounce）
-   * 用于为尚未评分的地址快速计算分数，消除"检查中"状态
-   * 对无 GMGN holder 快照的地址：funding_account 为空 → 无资金来源规则触发 → score≈10
-   */
+  // ─────────────────────────────────────────────────────────
+  // 手动标记（改用 IndexedDB，不再用 chrome.storage）
+  // ─────────────────────────────────────────────────────────
+
+  setManualScore(address, status) {
+    console.log('[HeliusMonitor] 设置手动标记:', { address, status });
+    this.manualScores[address] = status;
+    // 持久化到 IndexedDB
+    this.cacheManager.saveManualScores(this.mint, { [address]: status })
+      .catch(e => console.warn('[HeliusMonitor] 保存手动标记失败:', e.message));
+  }
+
+  setManualScores(manualScores) {
+    console.log('[HeliusMonitor] 批量设置手动标记:', Object.keys(manualScores).length, '条');
+    this.manualScores = { ...manualScores };
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 快速评分（WS新交易触发，500ms debounce）
+  // ─────────────────────────────────────────────────────────
+
   _scheduleQuickScore() {
     clearTimeout(this._quickScoreTimer);
     this._quickScoreTimer = setTimeout(() => {
@@ -938,87 +657,10 @@ export default class HeliusMonitor {
     }, 500);
   }
 
-  /**
-   * 设置 Score< 过滤阈值
-   */
-  setScoreThreshold(threshold) {
-    console.log('[HeliusMonitor] 设置 Score< 阈值:', threshold);
-    this.scoreThreshold = threshold;
+  // ─────────────────────────────────────────────────────────
+  // 隐藏中转检测（改用 IndexedDB）
+  // ─────────────────────────────────────────────────────────
 
-    // 以 traderStats 为基准重新构建散户集合
-    const traderStats = this.metricsEngine.traderStats;
-    if (Object.keys(traderStats).length > 0) {
-      const filteredUsers = new Set();
-      for (const [address, user] of Object.entries(traderStats)) {
-        if ((user.score || 0) < threshold) {
-          filteredUsers.add(address);
-        }
-      }
-
-      console.log('[HeliusMonitor] 重新过滤用户:', {
-        threshold,
-        totalTraders: Object.keys(traderStats).length,
-        filteredCount: filteredUsers.size
-      });
-
-      this.metricsEngine.setFilteredUsers(filteredUsers);
-    }
-
-    // 重新计算指标
-    this.recalculateMetrics();
-  }
-
-  /**
-   * 设置状态判断阈值
-   */
-  setStatusThreshold(threshold) {
-    console.log('[HeliusMonitor] 设置状态判断阈值:', threshold);
-    this.statusThreshold = threshold;
-    // 触发重新评分（需要重新获取 holder 数据）
-    // 这里暂时只更新阈值，实际重新评分由 HeliusIntegration 触发
-  }
-
-  /**
-   * 设置手动标记
-   */
-  setManualScore(address, status) {
-    console.log('[HeliusMonitor] 设置手动标记:', { address, status });
-    this.manualScores[address] = status;
-
-    // 持久化到 Chrome storage
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({
-        [`manual_scores_${this.mint}`]: this.manualScores
-      });
-    }
-
-    // 触发重新评分（需要重新获取 holder 数据）
-    // 这里暂时只更新标记，实际重新评分由 HeliusIntegration 触发
-  }
-
-  /**
-   * 批量设置手动标记
-   * @param {Object} manualScores - 手动标记对象 { address: status }
-   */
-  setManualScores(manualScores) {
-    console.log('[HeliusMonitor] 批量设置手动标记:', { count: Object.keys(manualScores).length });
-    this.manualScores = { ...manualScores };
-  }
-
-  /**
-   * 设置评分配置
-   */
-  setBossConfig(config) {
-    console.log('[HeliusMonitor] 设置评分配置');
-    this.bossConfig = config;
-    // 触发重新评分（需要重新获取 holder 数据）
-    // 这里暂时只更新配置，实际重新评分由 HeliusIntegration 触发
-  }
-
-  /**
-   * 检测单笔交易是否为隐藏中转模式
-   * 最小条件: spl-associated-token-account:create + spl-token:closeAccount 同时出现
-   */
   isHiddenRelayTx(tx) {
     const instructions = tx?.transaction?.message?.instructions;
     if (!instructions || !Array.isArray(instructions)) return { isRelay: false, conditions: [] };
@@ -1029,182 +671,209 @@ export default class HeliusMonitor {
     for (const ix of instructions) {
       const prog = ix.program || '';
       const pType = ix.parsed?.type || '';
-      if (prog === 'spl-associated-token-account') {
-        hasCreate = true;
-        conditions.push('Create');
-      }
-      if (prog === 'spl-token' && pType === 'closeAccount') {
-        hasClose = true;
-        conditions.push('CloseAccount');
-      }
-      if (prog === 'system' && pType === 'transfer') {
-        conditions.push('Transfer');
-      }
-      if (prog === 'spl-token' && pType === 'syncNative') {
-        conditions.push('SyncNative');
-      }
+      if (prog === 'spl-associated-token-account') { hasCreate = true; conditions.push('Create'); }
+      if (prog === 'spl-token' && pType === 'closeAccount') { hasClose = true; conditions.push('CloseAccount'); }
+      if (prog === 'system' && pType === 'transfer') conditions.push('Transfer');
+      if (prog === 'spl-token' && pType === 'syncNative') conditions.push('SyncNative');
     }
 
     return { isRelay: hasCreate && hasClose, conditions };
   }
 
-  /**
-   * 批量检测隐藏中转资金来源
-   * 分页翻到最旧 sig → 检测第一笔交易 → 缓存结果到 chrome.storage.local
-   */
   async detectHiddenRelays() {
-    // 防止并发：同一时刻只允许一个实例运行
-    if (this._relayDetecting) {
-      console.log('[HiddenRelay] 已有检测在运行，跳过本次');
-      return;
-    }
+    if (this._relayDetecting) return;
     this._relayDetecting = true;
 
     try {
-    const userInfo = this.metricsEngine.traderStats;
-    const allUsers = Object.keys(userInfo);
-    if (allUsers.length === 0) { this._relayDetecting = false; return; }
+      const userInfo = this.metricsEngine.traderStats;
+      const allUsers = Object.keys(userInfo);
+      if (allUsers.length === 0) return;
 
-    // 推送日志到插件日志区的辅助函数
-    const sendLog = (msg) => {
-      try {
-        chrome.runtime.sendMessage({ type: 'LOG', message: msg }).catch(() => {});
-      } catch (e) { /* 忽略 */ }
-    };
+      const sendLog = (msg) => {
+        try { chrome.runtime.sendMessage({ type: 'LOG', message: msg }).catch(() => {}); } catch (_e) { /* ignore */ }
+      };
 
-    // 1. 批量读取缓存，过滤出未检测过的用户
-    const cacheKeys = allUsers.map(u => `hidden_relay_${u}`);
-    const cached = await new Promise(resolve => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(cacheKeys, resolve);
-      } else {
-        resolve({});
+      // 从 IndexedDB 批量加载已检测过的缓存（替代 chrome.storage 批量 get）
+      const cached = await this.cacheManager.loadHiddenRelayResults(allUsers);
+
+      const unchecked = allUsers.filter(u => !cached[u]);
+
+      // 恢复已缓存的结果到 userInfo
+      for (const u of allUsers) {
+        if (cached[u]) {
+          userInfo[u].has_hidden_relay = cached[u].isRelay;
+          userInfo[u].hidden_relay_conditions = cached[u].conditions;
+        }
       }
-    });
 
-    const unchecked = allUsers.filter(u => cached[`hidden_relay_${u}`] === undefined);
-
-    // 从缓存中恢复已有结果
-    for (const u of allUsers) {
-      const c = cached[`hidden_relay_${u}`];
-      if (c !== undefined) {
-        userInfo[u].has_hidden_relay = c.isRelay;
-        userInfo[u].hidden_relay_conditions = c.conditions;
+      if (unchecked.length === 0) {
+        console.log('[HiddenRelay] 全部命中 IndexedDB 缓存');
+        return;
       }
-    }
 
-    if (unchecked.length === 0) {
-      console.log('[HiddenRelay] 全部命中缓存，跳过检测');
-      return;
-    }
+      const total = unchecked.length;
+      sendLog(`[中转检测] 开始: ${total}个待查 / ${allUsers.length - total}个缓存`);
 
-    const total = unchecked.length;
-    const cached_count = allUsers.length - total;
-    sendLog(`[中转检测] 开始: ${total}个待查 / ${cached_count}个缓存`);
-    console.log(`[HiddenRelay] 开始检测 ${total} 个未缓存用户`);
+      const BATCH_SIZE = 2;
+      let relayCount = 0;
+      let doneCount = 0;
 
-    // 2. 分批检测（每批2人，避免限速）
-    const BATCH_SIZE = 2;
-    let relayCount = 0;
-    let doneCount = 0;
+      for (let i = 0; i < unchecked.length; i += BATCH_SIZE) {
+        const batch = unchecked.slice(i, i + BATCH_SIZE);
 
-    for (let i = 0; i < unchecked.length; i += BATCH_SIZE) {
-      const batch = unchecked.slice(i, i + BATCH_SIZE);
+        for (const address of batch) {
+          doneCount++;
+          const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
+          try {
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 翻页中...`);
+            let before = undefined;
+            let lastBatch = [];
+            let pageCount = 0;
+            const MAX_PAGES = this.bossConfig?.hidden_relay_max_pages || 10;
 
-      for (const address of batch) {
-        doneCount++;
-        const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
-        try {
-          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 翻页中...`);
+            for (let page = 0; page < MAX_PAGES; page++) {
+              const sigs = await this.dataFetcher.call('getSignaturesForAddress',
+                [address, { limit: 1000, ...(before ? { before } : {}) }]
+              );
+              if (!Array.isArray(sigs) || sigs.length === 0) break;
+              lastBatch = sigs;
+              pageCount++;
+              if (sigs.length < 1000) break;
+              before = sigs[sigs.length - 1].signature;
+              await new Promise(r => setTimeout(r, 500));
+            }
 
-          // 分页获取最旧 sig（最多翻10页 = 10000条）
-          let before = undefined;
-          let lastBatch = [];
-          let pageCount = 0;
-          const MAX_PAGES = this.bossConfig?.hidden_relay_max_pages || 10;
+            if (lastBatch.length === 0) {
+              await this.cacheManager.saveHiddenRelayResult(address, this.mint, { isRelay: false, conditions: [] });
+              userInfo[address].has_hidden_relay = false;
+              userInfo[address].hidden_relay_conditions = [];
+              continue;
+            }
 
-          for (let page = 0; page < MAX_PAGES; page++) {
-            const params = [address, { limit: 1000, ...(before ? { before } : {}) }];
-            const sigs = await this.dataFetcher.call('getSignaturesForAddress', params);
-            if (!Array.isArray(sigs) || sigs.length === 0) break;
-            lastBatch = sigs;
-            pageCount++;
-            if (sigs.length < 1000) break;  // 已到底
-            before = sigs[sigs.length - 1].signature;
-            await new Promise(r => setTimeout(r, 500));  // 避免限速
-          }
+            const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
+            const oldestSig = lastBatch[lastBatch.length - 1].signature;
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 共${totalSigs}条sig，检测第1笔...`);
 
-          if (lastBatch.length === 0) {
+            const tx = await this.dataFetcher.call('getTransaction', [
+              oldestSig,
+              { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
+            ]);
+
+            let isRelay = false, conditions = [];
+            if (tx) {
+              const result = this.isHiddenRelayTx(tx);
+              isRelay = result.isRelay;
+              conditions = result.conditions;
+            }
+
+            userInfo[address].has_hidden_relay = isRelay;
+            userInfo[address].hidden_relay_conditions = conditions;
+
+            // 写入 IndexedDB（替代 chrome.storage.set）
+            await this.cacheManager.saveHiddenRelayResult(address, this.mint, { isRelay, conditions });
+
+            if (isRelay) {
+              relayCount++;
+              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} ⚠ 中转[${conditions.join('+')}]`);
+            } else {
+              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} - 普通`);
+            }
+
+          } catch (err) {
+            console.warn(`[HiddenRelay] 检测失败 ${shortAddr}:`, err.message);
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
-            if (typeof chrome !== 'undefined' && chrome.storage) {
-              chrome.storage.local.set({ [`hidden_relay_${address}`]: { isRelay: false, conditions: [], checkedAt: Date.now() } });
-            }
-            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 无sig，跳过`);
-            continue;
           }
-
-          const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
-          const oldestSig = lastBatch[lastBatch.length - 1].signature;
-
-          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 共${totalSigs}条sig，检测第1笔...`);
-
-          // 获取最旧交易详情
-          const tx = await this.dataFetcher.call('getTransaction', [
-            oldestSig,
-            { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
-          ]);
-
-          let isRelay = false;
-          let conditions = [];
-
-          if (tx) {
-            const result = this.isHiddenRelayTx(tx);
-            isRelay = result.isRelay;
-            conditions = result.conditions;
-          }
-
-          // 写入 userInfo
-          userInfo[address].has_hidden_relay = isRelay;
-          userInfo[address].hidden_relay_conditions = conditions;
-
-          // 持久化缓存
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.set({
-              [`hidden_relay_${address}`]: { isRelay, conditions, checkedAt: Date.now() }
-            });
-          }
-
-          if (isRelay) {
-            relayCount++;
-            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} ⚠ 中转[${conditions.join('+')}]`);
-          } else {
-            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} - 普通`);
-          }
-          console.log(`[HiddenRelay] ${shortAddr} isRelay=${isRelay} conds=[${conditions.join(',')}]`);
-
-        } catch (err) {
-          console.warn(`[HiddenRelay] 检测失败 ${shortAddr}:`, err.message);
-          userInfo[address].has_hidden_relay = false;
-          userInfo[address].hidden_relay_conditions = [];
-          sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 错误: ${err.message.slice(0, 30)}`);
+          await new Promise(r => setTimeout(r, 500));
         }
-
-        await new Promise(r => setTimeout(r, 500));  // 用户间间隔
+        if (i + BATCH_SIZE < unchecked.length) await new Promise(r => setTimeout(r, 800));
       }
 
-      if (i + BATCH_SIZE < unchecked.length) {
-        await new Promise(r => setTimeout(r, 800));  // 批次间间隔
-      }
-    }
-
-    sendLog(`[中转检测] 完成: ${relayCount}个中转 / ${total - relayCount}个普通`);
-    console.log('[HiddenRelay] 检测完成');
+      sendLog(`[中转检测] 完成: ${relayCount}个中转 / ${total - relayCount}个普通`);
 
     } finally {
       this._relayDetecting = false;
     }
   }
 
-}
+  // ─────────────────────────────────────────────────────────
+  // 配置设置
+  // ─────────────────────────────────────────────────────────
 
+  setApiKey(key) {
+    this.apiKey = key || '';
+    this.dataFetcher.setApiKey(this.apiKey);
+  }
+
+  setHeliusApiEnabled(enabled) {
+    this.heliusApiEnabled = enabled;
+    if (!enabled && this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    if (enabled && !this.ws && this.isInitialized) {
+      this.connectWs();
+    }
+  }
+
+  setScoreThreshold(threshold) {
+    this.scoreThreshold = threshold;
+    const traderStats = this.metricsEngine.traderStats;
+    if (Object.keys(traderStats).length > 0) {
+      const filteredUsers = new Set();
+      for (const [address, user] of Object.entries(traderStats)) {
+        if ((user.score || 0) < threshold) filteredUsers.add(address);
+      }
+      this.metricsEngine.setFilteredUsers(filteredUsers);
+    }
+    this.recalculateMetrics();
+  }
+
+  setStatusThreshold(threshold) {
+    this.statusThreshold = threshold;
+  }
+
+  setBossConfig(config) {
+    this.bossConfig = config;
+  }
+
+  updateWhaleAddresses(whaleAddresses) {
+    if (this.metricsEngine) this.metricsEngine.updateWhaleAddresses(whaleAddresses);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 状态查询
+  // ─────────────────────────────────────────────────────────
+
+  getMetrics() {
+    return this.metricsEngine.getMetrics();
+  }
+
+  getStats() {
+    const stats = this.signatureManager.getStats();
+    stats.heliusFetchedTotal = this.heliusFetchedTotal;
+    return stats;
+  }
+
+  notifyWsStatusChange() {
+    if (this.onWsStatusChange) this.onWsStatusChange(this.getWsStatus());
+  }
+
+  getWsStatus() {
+    return {
+      ...this.wsStatus,
+      uptime: this.wsStatus.connected && this.wsStatus.lastConnectTime
+        ? Date.now() - this.wsStatus.lastConnectTime
+        : 0
+    };
+  }
+
+  getVerifyStatus() {
+    return {
+      enabled: !!this.verifyInterval,
+      lastVerifyTime: this.lastVerifyTime,
+      intervalMs: this._verifyIntervalMs,
+      timeSinceLastVerify: this.lastVerifyTime ? Date.now() - this.lastVerifyTime : null
+    };
+  }
+}

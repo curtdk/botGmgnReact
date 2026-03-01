@@ -1,32 +1,32 @@
 /**
- * SignatureManager - 浏览器版 Signature 状态管理器
+ * SignatureManager v2 - Signature 状态管理器
  *
- * 功能：
- * 1. 跟踪所有 signature 的状态（hasData, isProcessed）
- * 2. 协调三个数据源：初始获取、WebSocket、插件
- * 3. 实现 20 秒等待策略
- * 4. 确保每个 signature 只计算一次
+ * v2 变化：
+ *  - 每条 sig 携带 slot / blockTime / blockIndex（来自 Helius API 原始字段）
+ *  - 内存 Map 的排序以 slot DESC + blockIndex DESC 为准（与 Helius 标准顺序一致）
+ *  - 新增 verifyAndReorder()：对 GMGN/WS 来源的 sig 做位置验证，发现乱序时标记
+ *  - 向后兼容：addSignature() 保留，slot/blockTime 可选（WS来源初始无此信息）
  */
 
 export default class SignatureManager {
   constructor(mintAddress) {
     this.mint = mintAddress;
 
-    // Signature 跟踪: sig -> { hasData, isProcessed, sources, timestamp, txData }
+    // sig → { slot, blockTime, blockIndex, hasData, isProcessed, sources, txData, createdAt }
     this.signatures = new Map();
 
     // 数据源跟踪
     this.sources = {
-      initial: new Set(),    // 从初始 getSignaturesForAddress
-      websocket: new Set(),  // 从 WebSocket logsNotification
-      plugin: new Set(),     // 从 GMGN 插件 tx_hash
-      verify: new Set()      // 从定期校验补充
+      initial: new Set(),
+      websocket: new Set(),
+      plugin: new Set(),
+      verify: new Set()
     };
 
-    // 累计初始获取计数（跨多次 verify 叠加，不依赖 Map 遍历）
+    // 累计初始获取计数（跨多次 verify 叠加）
     this.cumulativeInitialCount = 0;
 
-    // 状态管理
+    // 等待状态
     this.isWaiting = false;
     this.waitStartTime = null;
     this.fetchLock = false;
@@ -35,176 +35,234 @@ export default class SignatureManager {
     this.onDataReceived = null;
   }
 
+  // ─────────────────────────────────────────────────────────
+  // 添加 sig
+  // ─────────────────────────────────────────────────────────
+
   /**
-   * 添加 signature（从任何数据源）
-   * @param {string} sig - Signature
-   * @param {string} source - 来源 ('initial', 'websocket', 'plugin')
-   * @param {object} gmgnData - 可选的 GMGN trade 数据
+   * 添加 signature
+   * @param {string|Object} sigOrObj - sig字符串 或 Helius原始sig对象 { signature, slot, blockTime, blockIndex }
+   * @param {string} source - 来源 'initial'|'websocket'|'plugin'|'verify'
+   * @param {Object|null} gmgnData - 可选的 GMGN trade 数据
    */
-  addSignature(sig, source, gmgnData = null) {
+  addSignature(sigOrObj, source, gmgnData = null) {
+    const sig = typeof sigOrObj === 'string' ? sigOrObj : sigOrObj.signature;
+    const slot = (typeof sigOrObj === 'object' && sigOrObj.slot) || 0;
+    const blockTime = (typeof sigOrObj === 'object' && sigOrObj.blockTime) || 0;
+    const blockIndex = (typeof sigOrObj === 'object' && sigOrObj.blockIndex) || 0;
+
     if (!this.signatures.has(sig)) {
-      // 如果提供了 GMGN 数据，标记为已有数据
       const hasData = !!gmgnData;
       const txData = gmgnData ? { type: 'gmgn', data: gmgnData } : null;
 
-      // 新 sig：叠加初始计数
       if (source === 'initial') {
         this.cumulativeInitialCount++;
       }
 
       this.signatures.set(sig, {
-        hasData: hasData,        // 如果有 GMGN 数据，标记为 true
-        isProcessed: false,      // 是否已计算过
+        slot,
+        blockTime,
+        blockIndex,
+        hasData,
+        isProcessed: false,
         sources: new Set([source]),
-        timestamp: gmgnData ? gmgnData.timestamp * 1000 : Date.now(), // GMGN 时间戳是秒，转换为毫秒
-        txData: txData           // 存储 GMGN 数据或 null
+        // 时间戳：优先用 blockTime（秒→毫秒），其次 GMGN timestamp，最后当前时间
+        timestamp: blockTime ? blockTime * 1000 : (gmgnData?.timestamp ? gmgnData.timestamp * 1000 : Date.now()),
+        txData,
+        createdAt: Date.now()
       });
 
-      // 添加到数据源跟踪
-      if (this.sources[source]) {
-        this.sources[source].add(sig);
-      }
+      if (this.sources[source]) this.sources[source].add(sig);
 
-      if (gmgnData) {
-        console.log(`[SignatureManager] 添加 signature (GMGN数据): ${sig.substring(0, 8)}... (来源: ${source})`);
-      }
     } else {
-      // 已存在，只添加来源
       const entry = this.signatures.get(sig);
       entry.sources.add(source);
-      if (this.sources[source]) {
-        this.sources[source].add(sig);
+      if (this.sources[source]) this.sources[source].add(sig);
+
+      // 用 Helius 数据补充 slot/blockTime（更精确）
+      if (slot > 0 && entry.slot === 0) {
+        entry.slot = slot;
+        entry.blockTime = blockTime;
+        entry.blockIndex = blockIndex;
+        entry.timestamp = blockTime * 1000;
       }
 
-      // 如果之前没有数据，现在有 GMGN 数据，更新
+      // 若之前无数据，现在有 GMGN 数据，更新
       if (!entry.hasData && gmgnData) {
         entry.hasData = true;
         entry.txData = { type: 'gmgn', data: gmgnData };
-        entry.timestamp = gmgnData.timestamp * 1000;
-        console.log(`[SignatureManager] 更新 signature (GMGN数据): ${sig.substring(0, 8)}... (来源: ${source})`);
+        if (!entry.timestamp && gmgnData.timestamp) {
+          entry.timestamp = gmgnData.timestamp * 1000;
+        }
       }
     }
   }
 
   /**
-   * 标记 signature 已有数据（Helius 格式）
+   * 批量添加来自 Helius API 的 sig 原始列表（含 slot/blockTime）
+   * @param {Array} rawSigs - Helius getSignaturesForAddress 原始结果
+   * @param {string} source
    */
+  addSignatureBatch(rawSigs, source = 'initial') {
+    const n = rawSigs.length;
+    rawSigs.forEach((raw, idx) => {
+      // Helius 返回倒序数组，idx=0 最新，blockIndex 越大越新
+      const blockIndex = n - idx; // 转换：越新 blockIndex 越大
+      this.addSignature(
+        {
+          signature: typeof raw === 'string' ? raw : raw.signature,
+          slot: raw.slot || 0,
+          blockTime: raw.blockTime || 0,
+          blockIndex
+        },
+        source
+      );
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 数据状态标记
+  // ─────────────────────────────────────────────────────────
+
   markHasData(sig, txData) {
     if (!this.signatures.has(sig)) {
       this.addSignature(sig, 'unknown');
     }
 
     const entry = this.signatures.get(sig);
-
-    // 只在没有数据时更新，或者用 Helius 数据覆盖 GMGN 数据
-    if (!entry.hasData || (entry.txData && entry.txData.type === 'gmgn')) {
+    // Helius 数据优先级高于 GMGN
+    if (!entry.hasData || entry.txData?.type === 'gmgn') {
       entry.hasData = true;
       entry.txData = { type: 'helius', data: txData };
 
-      // 触发回调
       if (this.onDataReceived) {
         this.onDataReceived(sig, txData);
       }
     }
   }
 
-  /**
-   * 标记 signature 已计算
-   */
   markProcessed(sig) {
     if (this.signatures.has(sig)) {
       this.signatures.get(sig).isProcessed = true;
     }
   }
 
-  /**
-   * 获取 signature 状态
-   */
+  // ─────────────────────────────────────────────────────────
+  // 查询接口
+  // ─────────────────────────────────────────────────────────
+
   getState(sig) {
     return this.signatures.get(sig) || null;
   }
 
-  /**
-   * 检查是否有数据
-   */
   hasData(sig) {
-    const state = this.signatures.get(sig);
-    return state ? state.hasData : false;
+    return this.signatures.get(sig)?.hasData ?? false;
   }
 
-  /**
-   * 检查是否已处理
-   */
   isProcessedSig(sig) {
-    const state = this.signatures.get(sig);
-    return state ? state.isProcessed : false;
+    return this.signatures.get(sig)?.isProcessed ?? false;
   }
 
   /**
-   * 获取需要 API 获取的 signatures
+   * 获取需要 API 拉取详情的 sig 列表
+   * 按 slot ASC（从旧到新）顺序返回，确保计算按时序进行
    */
   getMissingSignatures() {
     const missing = [];
-
     for (const [sig, state] of this.signatures.entries()) {
-      if (!state.hasData) {  // 没有数据的需要获取
-        missing.push({ sig, timestamp: state.timestamp });
+      if (!state.hasData) {
+        missing.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex });
       }
     }
-
-    // 按时间戳排序（从旧到新）
-    missing.sort((a, b) => a.timestamp - b.timestamp);
-
+    // 从旧到新（slot ASC，同slot内 blockIndex ASC）
+    missing.sort((a, b) => {
+      if (a.slot !== b.slot) return a.slot - b.slot;
+      return a.blockIndex - b.blockIndex;
+    });
     return missing.map(item => item.sig);
   }
 
   /**
-   * 获取准备计算的 signatures（有数据但未处理）
+   * 获取准备计算的 sig（有数据未处理），按从旧到新排序
    */
   getReadySignatures() {
     const ready = [];
-
     for (const [sig, state] of this.signatures.entries()) {
       if (state.hasData && !state.isProcessed) {
-        ready.push({
-          sig,
-          timestamp: state.timestamp,
-          txData: state.txData
-        });
+        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData });
       }
     }
-
-    // 按时间戳倒排序（从旧到新）
-    ready.sort((a, b) => a.timestamp - b.timestamp);
-
+    // 从旧到新（确保交易顺序正确）
+    ready.sort((a, b) => {
+      if (a.slot !== b.slot) return a.slot - b.slot;
+      return a.blockIndex - b.blockIndex;
+    });
     return ready;
   }
 
   /**
-   * 开始等待期
+   * 获取最新的 sig（用于增量拉取的 until 参数）
+   * @returns {{ sig, slot, blockTime } | null}
    */
-  startWaitPeriod() {
-    this.isWaiting = true;
-    this.waitStartTime = Date.now();
-    console.log('[SignatureManager] 开始 20 秒等待期...');
+  getLatestSig() {
+    let latest = null;
+    for (const [sig, state] of this.signatures.entries()) {
+      if (state.sources.has('initial') || state.sources.has('verify')) {
+        if (!latest || state.slot > latest.slot ||
+           (state.slot === latest.slot && state.blockIndex > latest.blockIndex)) {
+          latest = { sig, slot: state.slot, blockTime: state.blockTime };
+        }
+      }
+    }
+    return latest;
   }
 
   /**
-   * 结束等待期
+   * 顺序验证：检查 GMGN/WS 来源的 sig 是否在预期位置
+   * 发现 slot 信息后，用 Helius slot 更新排序信息
+   * @param {string} sig
+   * @param {number} slot - 从 Helius verify 得到的真实 slot
+   * @param {number} blockTime
+   * @param {number} blockIndex
+   * @returns {boolean} 是否发生了位置更新
    */
+  updateSigOrder(sig, slot, blockTime, blockIndex = 0) {
+    const entry = this.signatures.get(sig);
+    if (!entry) return false;
+
+    const changed = entry.slot !== slot || entry.blockIndex !== blockIndex;
+    if (changed) {
+      console.log(`[SignatureManager] 顺序更新 ${sig.slice(0, 8)}... slot: ${entry.slot}→${slot} blockIdx: ${entry.blockIndex}→${blockIndex}`);
+      entry.slot = slot;
+      entry.blockTime = blockTime;
+      entry.blockIndex = blockIndex;
+      entry.timestamp = blockTime * 1000;
+    }
+    return changed;
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // 等待期控制
+  // ─────────────────────────────────────────────────────────
+
+  startWaitPeriod() {
+    this.isWaiting = true;
+    this.waitStartTime = Date.now();
+    console.log('[SignatureManager] 开始等待期...');
+  }
+
   endWaitPeriod() {
     this.isWaiting = false;
     const duration = Date.now() - this.waitStartTime;
     console.log(`[SignatureManager] 等待期结束，耗时 ${(duration / 1000).toFixed(1)} 秒`);
   }
 
-  /**
-   * 获取统计信息
-   */
+  // ─────────────────────────────────────────────────────────
+  // 统计
+  // ─────────────────────────────────────────────────────────
+
   getStats() {
-    let total = 0;
-    let hasData = 0;
-    let isProcessed = 0;
+    let total = 0, hasData = 0, isProcessed = 0;
     const bySources = { initial: 0, websocket: 0, plugin: 0, verify: 0 };
     const byDataSource = { api: 0, cache: 0, plugin: 0, websocket: 0 };
 
@@ -213,25 +271,16 @@ export default class SignatureManager {
       if (entry.hasData) hasData++;
       if (entry.isProcessed) isProcessed++;
 
-      // 统计 signature 来源
       entry.sources.forEach(src => {
-        if (bySources[src] !== undefined) {
-          bySources[src]++;
-        }
+        if (bySources[src] !== undefined) bySources[src]++;
       });
 
-      // 统计详细信息来源
       if (entry.hasData && entry.txData) {
-        const dataType = entry.txData.type; // 'gmgn', 'helius', 'cache', 'websocket'
-        if (dataType === 'gmgn') {
-          byDataSource.plugin++;
-        } else if (dataType === 'helius') {
-          byDataSource.api++;
-        } else if (dataType === 'cache') {
-          byDataSource.cache++;
-        } else if (dataType === 'websocket') {
-          byDataSource.websocket++;
-        }
+        const t = entry.txData.type;
+        if (t === 'gmgn') byDataSource.plugin++;
+        else if (t === 'helius') byDataSource.api++;
+        else if (t === 'cache') byDataSource.cache++;
+        else if (t === 'websocket') byDataSource.websocket++;
       }
     }
 
@@ -241,52 +290,36 @@ export default class SignatureManager {
       needFetch: total - hasData,
       isProcessed,
       notProcessed: total - isProcessed,
-      bySources: {
-        ...bySources,
-        initial: this.cumulativeInitialCount  // 使用累计计数，跨 verify 叠加
-      },
-      byDataSource      // 详细信息来源
+      bySources: { ...bySources, initial: this.cumulativeInitialCount },
+      byDataSource
     };
   }
 
-  /**
-   * 清理旧数据（可选，防止内存溢出）
-   */
-  cleanup(maxAge = 7 * 24 * 60 * 60 * 1000) {  // 默认 7 天
+  // ─────────────────────────────────────────────────────────
+  // 清理
+  // ─────────────────────────────────────────────────────────
+
+  cleanup(maxAge = 7 * 24 * 60 * 60 * 1000) {
     const now = Date.now();
     let removed = 0;
-
     for (const [sig, state] of this.signatures.entries()) {
-      if (now - state.timestamp > maxAge) {
+      if (now - state.createdAt > maxAge) {
         this.signatures.delete(sig);
         removed++;
       }
     }
-
-    if (removed > 0) {
-      console.log(`[SignatureManager] 清理了 ${removed} 个旧 signatures`);
-    }
+    if (removed > 0) console.log(`[SignatureManager] 清理 ${removed} 个旧 sig`);
   }
 
-  /**
-   * 清理所有数据
-   */
   clear() {
     console.log('[SignatureManager] 清理所有数据...');
-
     this.signatures.clear();
-    this.sources.initial.clear();
-    this.sources.websocket.clear();
-    this.sources.plugin.clear();
-    this.sources.verify.clear();
+    Object.values(this.sources).forEach(s => s.clear());
     this.cumulativeInitialCount = 0;
-
     this.isWaiting = false;
     this.waitStartTime = null;
     this.fetchLock = false;
-
     this.onDataReceived = null;
-
     console.log('[SignatureManager] 数据清理完成');
   }
 }
