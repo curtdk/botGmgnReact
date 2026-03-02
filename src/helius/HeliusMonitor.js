@@ -876,9 +876,11 @@ export default class HeliusMonitor {
       const existingUsers = await this.cacheManager.loadUsersData(allUsers);
 
       // 跳过条件：
-      //  1. 已有隐藏中转检测结果（hiddenRelayCheckedAt 存在）
-      //  2. 已有评分记录（上次已完整处理过，不再做慢速 sig 翻页）
+      //  1. 无资金来源（funding_account 为空）→ rule 9 条件1已直接成立，无需慢速检测
+      //  2. 已有隐藏中转检测结果（hiddenRelayCheckedAt 存在）
+      //  3. 已有评分记录（上次已完整处理过，不再做慢速 sig 翻页）
       const unchecked = allUsers.filter(u => {
+        if (!userInfo[u]?.funding_account) return false; // 无资金来源 → 条件1已覆盖，跳过
         const ud = existingUsers[u];
         if (ud?.hiddenRelayCheckedAt) return false; // 已检测过（无论是否中转）
         if (ud?.score !== undefined) return false;  // 已有评分 → 跳过，视为已分类

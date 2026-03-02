@@ -120,12 +120,19 @@ export default class BossLogic {
             }
         }
 
-        // 9. 隐藏中转资金来源
-        if (config.enable_hidden_relay && user.has_hidden_relay) {
+        // 9. 无资金来源-隐藏中转
+        // 条件1（快）：Funding Address 为空 → 直接成立
+        // 条件2（慢）：仅当 funding_account 存在时，由 detectHiddenRelays 检测第一笔 tx 含 Create+CloseAccount 指令
+        if (config.enable_hidden_relay) {
             const w = config.weight_hidden_relay || 15;
-            const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join('+') : '';
-            score += w;
-            reasons.push(`隐藏中转[${condStr}](+${w})`);
+            if (!user.funding_account) {
+                score += w;
+                reasons.push(`无资金来源/中转(+${w})`);
+            } else if (user.has_hidden_relay) {
+                const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join('+') : '';
+                score += w;
+                reasons.push(`隐藏中转[${condStr}](+${w})`);
+            }
         }
 
         return { score, reasons };

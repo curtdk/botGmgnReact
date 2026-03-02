@@ -14,7 +14,6 @@
  *    本轮成本  = 本轮下注 - 已落袋
  */
 
-import BossDetector from './BossDetector.js';
 import dataFlowLogger from '../utils/Logger.js';
 
 export default class MetricsEngine {
@@ -504,21 +503,5 @@ export default class MetricsEngine {
 
   updateBossConfig(config) {
     Object.assign(this.bossConfig, config);
-  }
-
-  detectWhales(existingStatusMap = {}) {
-    const result = BossDetector.detectWhales(
-      this.traderStats,
-      this.traderStats,
-      this.bossConfig,
-      existingStatusMap
-    );
-
-    this.whaleAddresses.clear();
-    Object.entries(result.statusMap).forEach(([address, status]) => {
-      if (status === '庄家') this.whaleAddresses.add(address);
-    });
-
-    return result;
   }
 }

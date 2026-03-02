@@ -243,6 +243,7 @@ export default class ScoringEngine {
     if (config.rule_large_holding?.enabled) enabled.push('大额持仓');
     if (config.rule_sol_balance?.enabled) enabled.push('SOL余额');
     if (config.rule_source_time?.enabled) enabled.push('同源时间');
+    if (config.enable_hidden_relay) enabled.push('无资金来源/隐藏中转');
     return enabled;
   }
 }
