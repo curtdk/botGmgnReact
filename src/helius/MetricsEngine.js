@@ -133,10 +133,6 @@ export default class MetricsEngine {
 
     if (this.isWhaleAddress(feePayer)) {
       this.skippedWhaleCount++;
-      dataFlowLogger.log('HeliusMonitor', '跳过庄家交易',
-        `庄家 ${feePayer.substring(0, 8)}... (sig: ${signature.substring(0, 8)}...)`,
-        { address: feePayer, signature, skippedCount: this.skippedWhaleCount, source: 'Helius' }
-      );
       return;
     }
 
@@ -183,10 +179,6 @@ export default class MetricsEngine {
 
     if (this.isWhaleAddress(maker)) {
       this.skippedWhaleCount++;
-      dataFlowLogger.log('HeliusMonitor', '跳过庄家交易',
-        `庄家 ${maker.substring(0, 8)}... (sig: ${trade.tx_hash.substring(0, 8)}...)`,
-        { address: maker, signature: trade.tx_hash, skippedCount: this.skippedWhaleCount, source: 'GMGN' }
-      );
       return;
     }
 
@@ -318,9 +310,8 @@ export default class MetricsEngine {
     let currentNetFlow = 0; // 当前持仓用户净流水之和 = Σ(sell - buy) for 持仓用户（负值）
     let activeCount = 0;
     let exitedRoundsCount = 0;
-
-    const logXiaZhu = [];
-    const logYiLuDai = [];
+    const logXiaZhu = [];   // 本轮下注明细
+    const logYiLuDai = [];  // 已落袋明细（含历史轮次）
 
     Object.entries(this.traderStats).forEach(([address, stats]) => {
       // 过滤：只计算 filteredUsers 中的用户（score < 阈值）
@@ -334,7 +325,11 @@ export default class MetricsEngine {
       if (stats.totalHistoricalNetFlow !== 0) {
         yiLuDai += stats.totalHistoricalNetFlow;
         exitedRoundsCount += stats.completedRounds.length;
-        logYiLuDai.push(`${s}: 历史${stats.completedRounds.length}轮 净流水=${stats.totalHistoricalNetFlow.toFixed(4)}`);
+        // 每轮明细：buy - sell = net
+        const roundLines = stats.completedRounds.map((r, i) =>
+          `  轮${i + 1}: buy=${r.buySOL.toFixed(4)} - sell=${r.sellSOL.toFixed(4)} = ${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(4)}`
+        ).join('\n');
+        logYiLuDai.push(`${s}: 历史${stats.completedRounds.length}轮\n${roundLines}\n  小计=${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
       }
 
       // ── 本轮下注：当前未完结轮次的净成本 ──
@@ -344,7 +339,7 @@ export default class MetricsEngine {
         benLunXiaZhu += netCost;
         currentNetFlow += round.sellSOL - round.buySOL; // 负值（当前用户净流出SOL）
         activeCount++;
-        logXiaZhu.push(`${s}: buy=${round.buySOL.toFixed(4)} sell=${round.sellSOL.toFixed(4)} 净成本=${netCost.toFixed(4)}`);
+        logXiaZhu.push(`${s}: buy=${round.buySOL.toFixed(4)} - sell=${round.sellSOL.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
       }
     });
 
@@ -356,29 +351,25 @@ export default class MetricsEngine {
     // 本轮成本 = 本轮下注 - 已落袋
     const benLunChengBen = benLunXiaZhu - yiLuDai;
 
-    // 日志
-    const calcLog = [
-      '=== 本轮下注（当前持仓净成本）===',
-      ...logXiaZhu,
-      `合计: ${benLunXiaZhu.toFixed(4)} SOL | 活跃用户: ${activeCount}`,
-      '',
-      '=== 已落袋（历史持仓净流水）===',
-      ...logYiLuDai,
-      `合计: ${yiLuDai.toFixed(4)} SOL | 历史轮次: ${exitedRoundsCount}`,
-      '',
-      `=== 浮盈浮亏 = 已落袋(${yiLuDai.toFixed(4)}) + 当前净流水(${currentNetFlow.toFixed(4)}) = ${fuYingFuKui.toFixed(4)} SOL ===`,
-      `=== 本轮成本 = 本轮下注(${benLunXiaZhu.toFixed(4)}) - 已落袋(${yiLuDai.toFixed(4)}) = ${benLunChengBen.toFixed(4)} SOL ===`,
-    ];
-
+    // ── 4大参数日志（值变化时写入 📋）──
     const metricsKey = `${yiLuDai.toFixed(4)}|${benLunXiaZhu.toFixed(4)}|${benLunChengBen.toFixed(4)}|${fuYingFuKui.toFixed(4)}`;
     const now = Date.now();
     if (this.lastMetricsLog !== metricsKey || now - this.lastMetricsLogTime > 5000) {
-      dataFlowLogger.log('HeliusMonitor', '指标计算完成', `已落袋=${yiLuDai.toFixed(4)} 本轮下注=${benLunXiaZhu.toFixed(4)} 本轮成本=${benLunChengBen.toFixed(4)} 浮盈浮亏=${fuYingFuKui.toFixed(4)}`,
-        { yiLuDai: yiLuDai.toFixed(4), benLunXiaZhu: benLunXiaZhu.toFixed(4), benLunChengBen: benLunChengBen.toFixed(4), fuYingFuKui: fuYingFuKui.toFixed(4), activeCount, exitedRoundsCount }
-      );
-      dataFlowLogger.log('实时指标计算', 'METRICS_CALC', calcLog.join('\n'), {});
       this.lastMetricsLog = metricsKey;
       this.lastMetricsLogTime = now;
+      const detail = [
+        `【本轮下注】${benLunXiaZhu.toFixed(4)} SOL（${activeCount}人持仓）`,
+        ...logXiaZhu.map(l => '  ' + l),
+        `【已落袋】${yiLuDai.toFixed(4)} SOL（${exitedRoundsCount}轮历史）`,
+        ...logYiLuDai,
+        `【浮盈浮亏】已落袋(${yiLuDai.toFixed(4)}) + 当前净流水(${currentNetFlow.toFixed(4)}) = ${fuYingFuKui.toFixed(4)} SOL`,
+        `【本轮成本】本轮下注(${benLunXiaZhu.toFixed(4)}) - 已落袋(${yiLuDai.toFixed(4)}) = ${benLunChengBen.toFixed(4)} SOL`,
+      ].join('\n');
+      dataFlowLogger.log(
+        '4大参数', '指标计算',
+        `下注=${benLunXiaZhu.toFixed(4)} 落袋=${yiLuDai.toFixed(4)} 成本=${benLunChengBen.toFixed(4)} 浮盈亏=${fuYingFuKui.toFixed(4)}`,
+        { detail }
+      );
     }
 
     return {
@@ -399,12 +390,7 @@ export default class MetricsEngine {
   }
 
   printMetrics() {
-    const m = this.getMetrics();
-    dataFlowLogger.log('持仓', '汇总指标',
-      `本轮下注=${m.benLunXiaZhu.toFixed(4)} 本轮成本=${m.benLunChengBen.toFixed(4)} 已落袋=${m.yiLuDai.toFixed(4)} 浮盈亏=${m.floatingPnL.toFixed(4)} SOL\n` +
-      `活跃持仓=${m.activeCount}人 已退出=${m.exitedCount}人 跳过庄家=${m.skippedWhaleCount}笔`,
-      { benLunXiaZhu: m.benLunXiaZhu, benLunChengBen: m.benLunChengBen, yiLuDai: m.yiLuDai, floatingPnL: m.floatingPnL, activeCount: m.activeCount, exitedCount: m.exitedCount }
-    );
+    this.getMetrics();
   }
 
   printDetailedMetrics() {
@@ -447,12 +433,6 @@ export default class MetricsEngine {
       userLines.push(line);
     });
 
-    if (userLines.length > 0) {
-      dataFlowLogger.log('持仓', '用户记录',
-        `活跃用户=${holdingCount} 有历史轮次=${historicalCount} 共 ${userLines.length} 人有记录:\n` + userLines.join('\n'),
-        { holdingCount, historicalCount, total: userLines.length }
-      );
-    }
   }
 
   // ─────────────────────────────────────────────────────────

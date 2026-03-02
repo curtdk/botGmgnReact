@@ -5,7 +5,6 @@
  */
 
 import BossLogic from '../content/BossLogic.js';
-import dataFlowLogger from '../utils/Logger.js';
 
 export default class ScoringEngine {
   /**
@@ -18,17 +17,6 @@ export default class ScoringEngine {
    * @returns {{ scoreMap: Map, whaleAddresses: Set, statistics: Object }}
    */
   calculateScores(userInfo, traderStats, config, manualScores = {}, statusThreshold = 50) {
-
-    dataFlowLogger.log(
-      'ScoringEngine',
-      '开始计算分数',
-      `用户数: ${Object.keys(userInfo).length}, 配置键数: ${Object.keys(config).length}`,
-      {
-        userCount: Object.keys(userInfo).length,
-        configKeys: Object.keys(config).length,
-        enabledRules: this.getEnabledRules(config)
-      }
-    );
 
     // 阶段 1: 收集统计数据
     const stats = this.collectStatistics(userInfo, config);
@@ -85,32 +73,6 @@ export default class ScoringEngine {
         detailCount++;
       }
     }
-
-    const avgScore = Array.from(scoreMap.values()).reduce((sum, s) => sum + s.score, 0) / scoreMap.size;
-
-    // 详细日志：显示所有用户的分数
-    const allUserScores = Array.from(scoreMap.entries()).map(([address, data]) => ({
-      address: address.substring(0, 8) + '...',
-      score: data.score,
-      status: data.status,
-      reasons: data.reasons.join(', ')
-    }));
-
-
-
-    dataFlowLogger.log(
-      'ScoringEngine',
-      '分数计算完成',
-      `总用户: ${scoreMap.size}, 庄家: ${whaleAddresses.size}, 散户: ${scoreMap.size - whaleAddresses.size}`,
-      {
-        totalUsers: scoreMap.size,
-        whaleCount: whaleAddresses.size,
-        retailCount: scoreMap.size - whaleAddresses.size,
-        avgScore: avgScore.toFixed(2),
-        scoreDistribution,
-        allUserScores: allUserScores
-      }
-    );
 
     return { scoreMap, whaleAddresses, statistics: stats };
   }

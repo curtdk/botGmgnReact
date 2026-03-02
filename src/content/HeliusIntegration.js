@@ -93,19 +93,6 @@ class HeliusIntegration {
       this.manualStatusMap = res[`manual_scores_${currentMint}`] || {};
 
 
-      dataFlowLogger.log(
-        'HeliusIntegration',
-        '配置加载完成',
-        `Boss配置键数量: ${Object.keys(this.bossConfig).length}`,
-        {
-          enabled: this.enabled,
-          scoreThreshold: this.scoreThreshold,
-          statusThreshold: this.statusThreshold,
-          bossConfigKeys: Object.keys(this.bossConfig).length,
-          enabledRules: this.getEnabledRules(),
-          manualScoreCount: Object.keys(this.manualStatusMap).length
-        }
-      );
     });
 
     // 监听 hook 事件
@@ -144,12 +131,8 @@ class HeliusIntegration {
       try {
         const data = event.detail;
         if (data && data.holders && Array.isArray(data.holders)) {
-          const hasMonitor = !!this.monitor;
-          dataFlowLogger.log('GMGN-Hook', 'Holders 接收', `${data.holders.length} 个 holder | 锁定: ${this.lockedMint || '无'} | monitor: ${hasMonitor ? '✓' : '✗'}`, { count: data.holders.length, lockedMint: this.lockedMint, currentMint: this.currentMint });
-
           // 如果 monitor 不存在，记录警告
           if (!this.monitor) {
-            dataFlowLogger.log('GMGN-Hook', '⚠ 丢弃', 'Monitor 未启动，holder 数据无法处理', { count: data.holders.length });
             return;
           }
 
@@ -191,7 +174,6 @@ class HeliusIntegration {
 
           if (trades.length > 0) {
             if (!this.monitor) {
-              dataFlowLogger.log('GMGN-Hook', '⚠ 丢弃 Trades', `${trades.length} 个交易，Monitor 未启动 | 锁定: ${this.lockedMint || '无'}`, { count: trades.length });
               return;
             }
 
@@ -210,16 +192,6 @@ class HeliusIntegration {
               const initState = this.monitor.isInitialized ? '实时处理' : '等待初始化完成';
               this.sendStatusLog(`GMGN Hook: ${trades.length} 条交易 (新增${newTradesCount}) [${initState}]`);
 
-              // 验证日志：GMGN Hook 新增交易顺序（按 GMGN timestamp 从旧→新）
-              const sortedNew = [...newTrades].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-              const orderLines = sortedNew.map((t, i) => {
-                const ts = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString('zh-CN') : '?';
-                return `[${i + 1}] ${(t.tx_hash || '').slice(0, 8)}... ts=${ts} event=${t.event || '?'} sol=${parseFloat(t.quote_amount || 0).toFixed(4)}`;
-              }).join('\n');
-              dataFlowLogger.log('验证-GMGN', 'Hook新增交易',
-                `新增 ${newTradesCount}/${trades.length} 条（从旧→新，slot=0等待Helius verify补充）:\n${orderLines}`,
-                { newCount: newTradesCount, total: trades.length, sigs: sortedNew.map(t => ({ sig: (t.tx_hash || '').slice(0, 8), ts: t.timestamp, event: t.event })) }
-              );
             }
 
             if (this.monitor.isInitialized && newTradesCount > 0) {
@@ -271,7 +243,6 @@ class HeliusIntegration {
       // 侧边栏开始：锁定 mint，阻止自动切换
       if (request.type === 'LOCK_MINT') {
         this.lockedMint = request.mint || null;
-        dataFlowLogger.log('锁定控制', '锁定 Mint', `侧边栏已启动，锁定 ${this.lockedMint}`, { lockedMint: this.lockedMint });
         // 若当前监控的 mint 与锁定 mint 不同，先切换过来
         if (this.lockedMint && this.currentMint !== this.lockedMint) {
           this.checkAndInitMonitor();
@@ -282,7 +253,6 @@ class HeliusIntegration {
 
       // 侧边栏停止：解锁 mint
       if (request.type === 'UNLOCK_MINT') {
-        dataFlowLogger.log('锁定控制', '解锁 Mint', `侧边栏已停止，解锁（原: ${this.lockedMint}）`, { prevLocked: this.lockedMint });
         this.lockedMint = null;
         sendResponse({ success: true });
         return true;
@@ -392,7 +362,6 @@ class HeliusIntegration {
 
     // 已锁定 mint 时，禁止自动切换到其他 mint
     if (this.lockedMint && mint !== this.lockedMint) {
-      dataFlowLogger.log('锁定控制', '忽略切换', `页面切换至 ${mint.slice(0,8)}...，继续锁定 ${this.lockedMint.slice(0,8)}...`, { newMint: mint, lockedMint: this.lockedMint });
       return;
     }
 
@@ -406,7 +375,6 @@ class HeliusIntegration {
 
     // 启动新的监控器（不检查开关状态，自动启动）
 
-    dataFlowLogger.log('锁定控制', 'Monitor 启动', `检测到 Mint: ${mint.slice(0,8)}...，启动 HeliusMonitor`, { mint, apiEnabled: this.enabled, lockedMint: this.lockedMint });
     this.sendStatusLog(`检测到代币 ${mint.slice(0, 8)}...，启动 Helius 监控`);
 
     // 整页加载后首次检测到 mint：通知 SidePanel 重置并更新 pageMint
@@ -558,8 +526,6 @@ class HeliusIntegration {
     try {
       const stats = this.monitor ? this.monitor.getStats() : null;
 
-      dataFlowLogger.log('UI-发送', 'Metrics 推送', `processed=${metrics.totalProcessed} | 锁定: ${this.lockedMint || '无'}`, { totalProcessed: metrics.totalProcessed, statsTotal: stats?.total, lockedMint: this.lockedMint });
-
       chrome.runtime.sendMessage({
         type: 'HELIUS_METRICS_UPDATE',
         metrics: metrics,
@@ -675,12 +641,6 @@ class HeliusIntegration {
           score_reasons: stats.score_reasons || []
         };
       });
-
-    // 统计庄家和散户数量
-    const whaleCount = holdersData.filter(h => h.status === '庄家').length;
-    const retailCount = holdersData.filter(h => h.status === '散户').length;
-
-    dataFlowLogger.log('UI-发送', 'Holders 推送', `${holdersData.length} 用户 (庄家:${whaleCount} 散户:${retailCount}) | 锁定: ${this.lockedMint || '无'}`, { count: holdersData.length, whaleCount, retailCount, lockedMint: this.lockedMint });
 
     // 发送 Chrome 消息给 sidepanel
     chrome.runtime.sendMessage({

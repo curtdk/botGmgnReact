@@ -17,6 +17,9 @@ Object.entries(this.traderStats).forEach(([address, stats]) => {
   // 第二层：庄家过滤
   if (this.whaleAddresses.has(address)) return;
 
+  当前只有这一个条件：
+finalScore >= statusThreshold（默认 50）→ 加入 whaleAddresses
+
 
   两条数据在 traderStats 汇合
 
