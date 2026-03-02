@@ -126,10 +126,22 @@ export default class HeliusMonitor {
       // 1. 初始化缓存
       this._log('初始化 IndexedDB...');
       dataFlowLogger.log('启动', 'Step 1: IndexedDB 初始化', '正在连接本地缓存...');
-      await this.cacheManager.init();
+      try {
+        await this.cacheManager.init();
+        if (this.isStopped) throw new Error('Stopped');
+        this._log('IndexedDB 就绪');
+        dataFlowLogger.log('启动', 'Step 1 ✓ IndexedDB 就绪', '本地缓存连接成功');
+      } catch (initErr) {
+        if (this.cacheManager.disabled) {
+          // 超时或 blocked：以无缓存模式继续，不中断启动
+          const reason = initErr?.message === 'IndexedDB_BLOCKED' ? 'BLOCKED（另一标签页占用）' : '超时（6s）';
+          this._log(`⚠ IndexedDB ${reason}，无缓存模式`);
+          dataFlowLogger.log('启动', `Step 1 ⚠ IndexedDB ${reason}`, '跳过本地缓存，数据将从网络实时拉取（本次不持久化）');
+        } else {
+          throw initErr; // 其他错误（如权限问题）仍向上抛
+        }
+      }
       if (this.isStopped) throw new Error('Stopped');
-      this._log('IndexedDB 就绪');
-      dataFlowLogger.log('启动', 'Step 1 ✓ IndexedDB 就绪', '本地缓存连接成功');
 
       // 2. 从 IndexedDB 加载手动标记（替代 chrome.storage）
       this.manualScores = await this.cacheManager.loadManualScores(this.mint);
@@ -518,11 +530,12 @@ export default class HeliusMonitor {
 
     if (this.isWaitingForGmgn || !this.isInitialized) return;
 
+    // 已处理过的 sig（GMGN/Helius 历史数据中已有）直接跳过，无需 pending 占位
+    if (this.signatureManager.isProcessedSig(sig)) return;
+
     // 立即加入 sigFeed（pending 状态，hasData=false），触发 UI 即时显示占位条目
     this._addSigToFeed(sig, source);
     this._fireMetricsUpdate();
-
-    if (this.signatureManager.isProcessedSig(sig)) return;
 
     if (!this.signatureManager.hasData(sig)) {
       const txs = await this.dataFetcher.fetchParsedTxs([sig], this.mint);

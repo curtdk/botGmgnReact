@@ -235,6 +235,13 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
         return val.toFixed(2);
     };
 
+    const flames = (v) => {
+        const val = metricsUnit === 'USDT' && solUsdtPrice > 0 ? v * solUsdtPrice : v;
+        if (val >= 300) return '🔥🔥🔥';
+        if (val >= 200) return '🔥🔥';
+        return '';
+    };
+
     const shortAddr = (addr) => addr ? addr.slice(0, 4) : '----';
 
     const colStyle = (width, align = 'right') => ({
@@ -280,12 +287,12 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                 <span style={colStyle('30px', 'left')}>时间</span>
                 <span style={colStyle('36px', 'left')}>类型</span>
                 <span style={colStyle('56px')}>数量</span>
-                <span style={colStyle('44px')}>金额</span>
+                <span style={colStyle('68px')}>金额</span>
                 <span style={colStyle('36px')}>交易者</span>
                 <span style={{ flex: 1, textAlign: 'right' }}>标签</span>
             </div>
             {/* 交易行 */}
-            <div style={{ maxHeight: '280px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
+            <div style={{ height: '350px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
                 {/* Pending 条目：sig 已到达但 tx 数据尚未获取 */}
                 {pendingEntries.map((s) => (
                     <div key={s.sig} style={{
@@ -316,9 +323,9 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                         }}>
                             <span style={{ ...colStyle('30px', 'left'), color: '#6b7280' }}>{timeAgo(t.rawTimestamp)}</span>
                             <span style={{ ...colStyle('36px', 'left'), color: isBuy ? '#22c55e' : '#ef4444', fontWeight: 500 }}>{t.action}</span>
-                            <span style={colStyle('56px')}>{fmtToken(t.tokenAmount)}</span>
-                            <span style={{ ...colStyle('44px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}</span>
-                            <span style={{ ...colStyle('36px'), color: '#60a5fa', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
+                            <span style={{ ...colStyle('56px'), color: '#6b7280' }}>{fmtToken(t.tokenAmount)}</span>
+                            <span style={{ ...colStyle('68px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}{flames(t.solAmount)}</span>
+                            <span style={{ ...colStyle('36px'), color: '#ffffff', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
                             <span style={{ flex: 1, textAlign: 'right', color: isPending ? '#4b5563' : '#6b7280', fontStyle: isPending ? 'italic' : 'normal' }}>
                                 {isPending ? '检查中' : (t.label || '散户')}
                             </span>

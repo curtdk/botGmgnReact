@@ -13,21 +13,44 @@ export default class CacheManager {
     this.dbName = 'helius_cache';
     this.dbVersion = 2;
     this.db = null;
+    this.disabled = false; // IndexedDB 超时/blocked 时设为 true，所有操作降级为 no-op
   }
 
   // ─────────────────────────────────────────────────────────
   // 初始化 / 升级
   // ─────────────────────────────────────────────────────────
 
-  async init() {
+  async init(timeoutMs = 6000) {
+    if (this.disabled) return;
     return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const fail = (reason) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.disabled = true;
+        reject(new Error(reason));
+      };
+
+      const timer = setTimeout(() => fail('IndexedDB_TIMEOUT'), timeoutMs);
+
       const request = indexedDB.open(this.dbName, this.dbVersion);
 
+      // onblocked：另一个标签页/旧实例持有连接且未关闭，导致 open 无法推进
+      request.onblocked = () => fail('IndexedDB_BLOCKED');
+
       request.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         reject(request.error);
       };
 
       request.onsuccess = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         this.db = request.result;
         resolve();
       };
@@ -80,6 +103,7 @@ export default class CacheManager {
    * @param {string} source - 来源标识 'helius'|'gmgn'|'ws'
    */
   async saveSigBatch(mint, rawSigs, source = 'helius') {
+    if (this.disabled) return 0;
     if (!this.db) await this.init();
     if (!rawSigs || rawSigs.length === 0) return 0;
 
@@ -128,6 +152,7 @@ export default class CacheManager {
    * 保存单条 sig 记录（通常来自 GMGN 或 WS）
    */
   async saveSig(mint, sig, { slot = 0, blockTime = 0, blockIndex = 0, source = 'gmgn' } = {}) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -162,6 +187,7 @@ export default class CacheManager {
    * 更新 sig 的 hasData / isProcessed 状态
    */
   async updateSigStatus(sig, { hasData, isProcessed } = {}) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -188,6 +214,7 @@ export default class CacheManager {
    * @returns {Array<{signature, slot, blockTime, blockIndex, source, hasData, isProcessed}>}
    */
   async loadSigsByMint(mint) {
+    if (this.disabled) return [];
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -251,6 +278,7 @@ export default class CacheManager {
   // ─────────────────────────────────────────────────────────
 
   async saveTransaction(signature, mint, txData) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -266,6 +294,7 @@ export default class CacheManager {
   }
 
   async saveTransactions(transactions, mint) {
+    if (this.disabled) return 0;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -286,6 +315,7 @@ export default class CacheManager {
   }
 
   async loadTransactionsBySignatures(signatures) {
+    if (this.disabled) return [];
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -326,6 +356,7 @@ export default class CacheManager {
    * @param {Object} userData - 用户数据（score/status/manualScore/holderSnapshot等）
    */
   async saveUser(address, mint, userData) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -347,6 +378,7 @@ export default class CacheManager {
    * 批量保存用户数据
    */
   async saveUsers(usersMap, mint) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
     const entries = Object.entries(usersMap);
     if (entries.length === 0) return;
@@ -372,6 +404,7 @@ export default class CacheManager {
    * 加载单个用户数据
    */
   async loadUser(address) {
+    if (this.disabled) return null;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -387,6 +420,7 @@ export default class CacheManager {
    * 按 mint 加载所有用户数据
    */
   async loadUsersByMint(mint) {
+    if (this.disabled) return [];
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -405,6 +439,7 @@ export default class CacheManager {
    * @param {Object} scores - { address: status }
    */
   async saveManualScores(mint, scores) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
     const entries = Object.entries(scores);
     if (entries.length === 0) return;
@@ -455,6 +490,7 @@ export default class CacheManager {
    * @returns {Object} { address: userRecord }
    */
   async loadUsersData(addresses) {
+    if (this.disabled) return {};
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -483,6 +519,7 @@ export default class CacheManager {
    * @returns {Object} { address: { isRelay, conditions, checkedAt } }
    */
   async loadHiddenRelayResults(addresses) {
+    if (this.disabled) return {};
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -522,6 +559,7 @@ export default class CacheManager {
   // ─────────────────────────────────────────────────────────
 
   async saveMintMeta(mint, meta) {
+    if (this.disabled) return;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -538,6 +576,7 @@ export default class CacheManager {
   }
 
   async loadMintMeta(mint) {
+    if (this.disabled) return null;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
@@ -554,6 +593,7 @@ export default class CacheManager {
   // ─────────────────────────────────────────────────────────
 
   async cleanup(maxAge = 7 * 24 * 60 * 60 * 1000) {
+    if (this.disabled) return 0;
     if (!this.db) await this.init();
 
     return new Promise((resolve, reject) => {
