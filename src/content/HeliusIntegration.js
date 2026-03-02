@@ -19,6 +19,7 @@ class HeliusIntegration {
     this.isInitialized = false;
     this.enabled = false; // 监控开关状态
     this.lockedMint = null; // 侧边栏锁定的 mint（非 null 时禁止自动切换）
+    this._isFirstMintDetection = true; // 整页加载后首次检测到 mint 的标记
 
     // 事件处理器引用（用于清理）
     this.hookSignaturesHandler = null;
@@ -407,6 +408,16 @@ class HeliusIntegration {
 
     dataFlowLogger.log('锁定控制', 'Monitor 启动', `检测到 Mint: ${mint.slice(0,8)}...，启动 HeliusMonitor`, { mint, apiEnabled: this.enabled, lockedMint: this.lockedMint });
     this.sendStatusLog(`检测到代币 ${mint.slice(0, 8)}...，启动 Helius 监控`);
+
+    // 整页加载后首次检测到 mint：通知 SidePanel 重置并更新 pageMint
+    // SPA 内导航由 MutationObserver 触发，此时 _isFirstMintDetection 已为 false，不重复通知
+    const fromPageLoad = this._isFirstMintDetection;
+    this._isFirstMintDetection = false;
+    if (fromPageLoad) {
+      try {
+        chrome.runtime.sendMessage({ type: 'MINT_CHANGED', mint, fromPageLoad: true }).catch(() => {});
+      } catch (_e) { /* ignore */ }
+    }
 
     this.currentMint = mint;
     this.monitor = new HeliusMonitor(mint);

@@ -1033,8 +1033,23 @@ const App = () => {
             if (request.price) setCurrentPrice(request.price);
         } else if (request.type === 'MINT_CHANGED') {
             // 处理 Mint 变化
-            if (request.mint && request.mint !== pageMint) {
-                initPageLogic(request.mint);
+            if (request.mint) {
+                if (request.fromPageLoad) {
+                    // 整页加载（地址栏直接输入/回车）：用户主动跳转，重置监控状态
+                    if (isStartedRef.current) {
+                        setIsStarted(false);
+                        isStartedRef.current = false;
+                        setStartedMint('');
+                        startedMintRef.current = '';
+                        setStartStage('已停止');
+                        if (autoUpdateTimer.current) { clearInterval(autoUpdateTimer.current); autoUpdateTimer.current = null; }
+                        if (tradesUpdateTimer.current) { clearInterval(tradesUpdateTimer.current); tradesUpdateTimer.current = null; }
+                        // UNLOCK_MINT 不需要发送：新 content script 已重置 lockedMint=null
+                    }
+                    initPageLogic(request.mint);
+                } else if (request.mint !== pageMint) {
+                    initPageLogic(request.mint);
+                }
             }
         } else if (request.type === 'PAGE_INFO') {
             // 初始化信息
