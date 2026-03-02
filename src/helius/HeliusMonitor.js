@@ -165,8 +165,8 @@ export default class HeliusMonitor {
         this._log(`桥接 init 窗口: 补全 ${wsGapSigs.length} 条 WS 期间遗漏 sig...`);
         await this.fetchMissingTransactions();
         if (this.isStopped) throw new Error('Stopped');
-        // 处理刚补全的 sig
-        const bridgeSigs = this.signatureManager.getReadySignatures();
+        // 处理刚补全的 sig（顺序计算，保持与 performInitialCalculation 一致）
+        const bridgeSigs = this.signatureManager.getReadySignaturesSequential();
         if (bridgeSigs.length > 0) {
           this._log(`桥接 init 窗口: 处理 ${bridgeSigs.length} 条补全交易...`);
           for (const item of bridgeSigs) {
@@ -459,12 +459,15 @@ export default class HeliusMonitor {
   async performInitialCalculation() {
     if (this.isStopped) return;
 
-    const readySignatures = this.signatureManager.getReadySignatures();
+    // 顺序计算：从旧到新，遇到第一个 hasData=false gap 就停
+    // 保证 4 大参数按时序连续计算，gap 后的 sig 等补全后再续算
+    const readySignatures = this.signatureManager.getReadySignaturesSequential();
     if (readySignatures.length === 0) {
       return;
     }
 
-    this._log(`处理 Helius 历史交易: ${readySignatures.length} 条...`);
+    const gapCount = this.signatureManager.getMissingSignatures().length;
+    this._log(`处理历史交易: ${readySignatures.length} 条（顺序计算）${gapCount > 0 ? `，仍有 ${gapCount} 条缺口待补全` : ''}`);
     this.metricsEngine.setTotalTransactions(readySignatures.length);
 
     for (const item of readySignatures) {
@@ -485,6 +488,24 @@ export default class HeliusMonitor {
     this.metricsEngine.printMetrics();
     this.metricsEngine.printDetailedMetrics();
 
+    this._fireMetricsUpdate();
+  }
+
+  /**
+   * 在 gap 被补全后续算：从水位线继续处理连续的 hasData=true 未处理 sig
+   * 调用时机：verifySignatures 或 fetchMissingTransactions 填充了缺失的 tx 后
+   */
+  async _tryProcessUnblocked() {
+    if (this.isStopped) return;
+    const readySigs = this.signatureManager.getReadySignaturesSequential();
+    if (readySigs.length === 0) return;
+
+    this._log(`续算: ${readySigs.length} 条 sig 解除阻塞，继续顺序计算...`);
+    for (const item of readySigs) {
+      if (this.isStopped) return;
+      this.metricsEngine.processTransaction(item.txData, this.mint);
+      this.signatureManager.markProcessed(item.sig);
+    }
     this._fireMetricsUpdate();
   }
 
@@ -645,6 +666,8 @@ export default class HeliusMonitor {
         }
 
         this._log(`Verify: 处理完成 ${txs.length} 条新交易`);
+        // 尝试续算：verify 可能补全了历史 gap 中的 sig，解锁后续连续段
+        await this._tryProcessUnblocked();
         this._fireMetricsUpdate();
       }
 

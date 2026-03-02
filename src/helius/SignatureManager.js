@@ -210,6 +210,48 @@ export default class SignatureManager {
   }
 
   /**
+   * 顺序获取可计算的 sig（从旧到新，遇到第一个 hasData=false gap 就停止）
+   * 保证 4 大参数按时序连续计算：只处理连续完整的前段，gap 后的 sig 暂不处理
+   * 当 gap 被补全后，调用方再次调用此方法即可继续（已处理的 sig 自动跳过）
+   * @returns {Array<{sig, slot, blockTime, blockIndex, txData, timestamp, createdAt}>}
+   */
+  getReadySignaturesSequential() {
+    // 收集所有未处理的 sig（含 hasData=false 的 gap）
+    const all = [];
+    for (const [sig, state] of this.signatures.entries()) {
+      if (!state.isProcessed) {
+        all.push({
+          sig,
+          slot: state.slot,
+          blockTime: state.blockTime,
+          blockIndex: state.blockIndex,
+          txData: state.txData,
+          timestamp: state.timestamp,
+          createdAt: state.createdAt,
+          hasData: state.hasData
+        });
+      }
+    }
+
+    // 同 getReadySignatures() 的排序（从旧到新）
+    all.sort((a, b) => {
+      const tA = a.blockTime > 0 ? a.blockTime * 1000 : (a.timestamp || 0);
+      const tB = b.blockTime > 0 ? b.blockTime * 1000 : (b.timestamp || 0);
+      if (tA !== tB) return tA - tB;
+      if (a.slot === 0 && b.slot === 0) return (b.createdAt || 0) - (a.createdAt || 0);
+      return (a.blockIndex || 0) - (b.blockIndex || 0);
+    });
+
+    // 只返回从头连续的 hasData=true 段（遇到第一个 gap 停止）
+    const ready = [];
+    for (const item of all) {
+      if (!item.hasData) break;
+      ready.push(item);
+    }
+    return ready;
+  }
+
+  /**
    * 获取最新的 sig（用于增量拉取的 until 参数）
    * @returns {{ sig, slot, blockTime } | null}
    */
