@@ -794,10 +794,35 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   setManualScore(address, status) {
-    this.manualScores[address] = status;
+    if (status === '散户') {
+      delete this.manualScores[address]; // 取消标记，清除条目
+    } else {
+      this.manualScores[address] = status;
+    }
     // 持久化到 IndexedDB
     this.cacheManager.saveManualScores(this.mint, { [address]: status })
       .catch(() => {});
+
+    // 立即重算所有评分，确保 traderStats.status 在 sendDataToSidepanel 前已更新
+    if (Object.keys(this.metricsEngine.traderStats).length > 0) {
+      const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
+        this.metricsEngine.traderStats,
+        this.metricsEngine.traderStats,
+        this.bossConfig,
+        this.manualScores,
+        this.statusThreshold
+      );
+      for (const [addr, scoreData] of scoreMap.entries()) {
+        if (this.metricsEngine.traderStats[addr]) {
+          this.metricsEngine.traderStats[addr].score = scoreData.score;
+          this.metricsEngine.traderStats[addr].status = scoreData.status;
+          this.metricsEngine.traderStats[addr].score_reasons = scoreData.reasons;
+        }
+      }
+      const filteredUsers = this.filterUsersByScore(scoreMap);
+      this.metricsEngine.updateWhaleAddresses(whaleAddresses);
+      this.metricsEngine.setFilteredUsers(filteredUsers);
+    }
   }
 
   setManualScores(manualScores) {

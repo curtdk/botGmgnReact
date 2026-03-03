@@ -51,117 +51,118 @@
 
 WS 新交易 → processTransaction() → updateTraderState()
   → traderStats[address] 创建/更新（无 score，只有 netSolSpent 等）
-  → recentTrades.unshift({ ..., label: status, [无 score 字段] })
+  → recentTrades.unshift({ ..., label: null（待评分）})
 
-GMGN Hook 持仓 → updateHolderData()
+GMGN Hook 持仓（EXECUTE_HOLDERS_REFRESH 定时触发）→ updateGmgnHolders() → updateHolderData()
   → calculateScores() → scoreMap
   → scoreMap 写入 traderStats[address].score / .status
   → filterUsersByScore() → filteredUsers
   → recalculateMetrics()
 
+getMetrics() 每次调用时：
+  → recentTrades 每条同步附加 score + label（来自 traderStats 最新值）
+  → 保证 UI 看到的始终是最新评分结果
+
 ---
 
-## 实时交易列表 Score< 筛选 — 已实现架构
+## HOOK_FETCH_XHR_EVENT 数据流职责分工（重构后）
 
-### 核心对象关系
+### 核心原则
+- `HOOK_FETCH_XHR_EVENT` 只触发 1~2 次（页面自然 XHR），不可依赖它做持续数据处理
+- 持续数据完全依赖定时刷新（EXECUTE_HOLDERS_REFRESH / EXECUTE_TRADES_REFRESH）
+
+### 各文件职责
+
+| 文件 | 角色 | 处理内容 |
+|------|------|---------|
+| `hook.js` | 页面注入层 | 拦截 XHR，发 `HOOK_FETCH_XHR_EVENT` |
+| `index.jsx` | 通讯层 | 捕获 URL 存 storage，发专用消息（不做数据处理）|
+| `HeliusIntegration.js` | 数据层 | 不再监听 `HOOK_FETCH_XHR_EVENT`（已删除）|
+| `App.jsx` | UI层 | 收专用 URL 消息 → 存 ref，驱动定时刷新 |
+
+### 事件/消息流（重构后）
 
 ```
-traderStats[address] {
-  // WS 交易累积字段
-  netSolSpent, totalBuySol, totalSellSol, netTokenReceived,
-  totalGasFee, status, ...
+hook.js → HOOK_FETCH_XHR_EVENT → index.jsx
+    /token_holders → chrome.storage.set + HOOK_HOLDERS_URL_CAPTURED → App.jsx → lastHoldersUrlRef
+    /token_trades  → chrome.storage.set + HOOK_TRADES_URL_CAPTURED  → App.jsx → lastTradesUrlRef
+    /get_remark_info → fetchFullRemarks（逻辑不变）
 
-  // GMGN holder 快照字段（updateHolderData 写入）
-  funding_account, ui_amount, usd_value, sol_balance,
-  total_buy_u, rank, native_transfer, ...
+App.jsx 定时器（持续）:
+  autoUpdateTimer  → runHookRefresh()  → EXECUTE_HOLDERS_REFRESH → index.jsx
+                     → fetch /token_holders → updateGmgnHolders() → 评分 → UI
+  tradesUpdateTimer → runTradesRefresh() → EXECUTE_TRADES_REFRESH → index.jsx
+                     → fetch /token_trades → processFetchedTrades() → MetricsEngine
 
-  // 评分结果（calculateScores 写入）
-  score,          // number | undefined（未评分时为 undefined）
-  status,         // '庄家' | '散户' | 手动标记
-  score_reasons   // 各规则命中明细
-}
+Helius WS（实时补充）:
+  ws.onmessage → handleNewSignature → fetchParsedTxs → MetricsEngine.processTransaction()
 
+Monitor 初始化解锁:
+  EXECUTE_TRADES_REFRESH 结尾 → GMGN_TRADES_LOADED → monitor.onGmgnDataLoaded()
+  （原 HOOK_FETCH_XHR_EVENT 触发的解锁路径已删除）
+```
+
+### 已删除的死代码
+
+| 废弃内容 | 原位置 | 原因 |
+|---------|--------|------|
+| `HOOK_SIGNATURES_EVENT` 监听 | `HeliusIntegration.js` | hook.js 从未发送此事件，死监听 |
+| `HOOK_FETCH_XHR_EVENT` 监听 | `HeliusIntegration.js` | 职责移至 index.jsx，数据处理改用定时刷新 |
+| `HOOK_HOLDERS_EVENT` dispatchEvent | `index.jsx EXECUTE_HOOK_REFRESH` | 与 updateGmgnHolders 重复触发评分 |
+| `/token_holders` 数据处理 | `index.jsx HOOK_FETCH_XHR_EVENT` | 数据处理由 EXECUTE_HOLDERS_REFRESH 负责 |
+| `/token_trades` 数据处理 | `index.jsx HOOK_FETCH_XHR_EVENT` | 数据处理由 EXECUTE_TRADES_REFRESH 负责 |
+
+### 命名改动（对称化）
+
+| 旧名 | 新名 | 文件 |
+|------|------|------|
+| `lastGmgnUrlRef` | `lastHoldersUrlRef` | App.jsx |
+| `EXECUTE_HOOK_REFRESH` | `EXECUTE_HOLDERS_REFRESH` | App.jsx + index.jsx |
+
+---
+
+## 实时交易列表 — 只显示散户（重构后）
+
+### 核心原则
+**实时交易列表绝不显示庄家，身份未确认的用户在评分完成前不显示**
+
+### recentTrades 字段说明
+
+```
 recentTrades[i] {
   signature, address, action, tokenAmount, solAmount, rawTimestamp,
-  label,   // 来自 traderStats[address].status（updateTraderState 时写入）
-  score    // 来自 traderStats[address].score（getMetrics() 实时附加）
+  label,   // getMetrics() 实时从 traderStats[address].status 刷新（非写死）
+  score    // getMetrics() 实时从 traderStats[address].score  刷新
 }
-
-filteredUsers: Set<address>   // score < scoreThreshold 的地址集合
-scoreThreshold: number        // Score< 阈值（用户在设置中配置）
-minScore: number              // App.jsx state，同步自 scoreThreshold
 ```
 
-### 数据流（三种情况）
+`label` 和 `score` 均在每次 `getMetrics()` 调用时从 `traderStats` 最新值动态刷新，不再是交易处理时写死的快照。
 
-**情况 A（绝大多数）：已知地址（traderStats 有 score）**
-```
-WS 新交易 → handleNewSignature()
-  → processTransaction() → recentTrades 更新
-  → getMetrics() 读取 traderStats[addr].score（已有值）
-  → onMetricsUpdate() → UI 立即显示
-  → 按 score 直接判断：>= minScore 屏蔽 / < minScore 正常显示
-```
+### 过滤逻辑（App.jsx RecentTradesList）
 
-**情况 B（少量）：在 traderStats 但 score=undefined**
-```
-WS 新交易 → handleNewSignature()
-  → getMetrics() → score: undefined → UI 显示"检查中"
-  → 检测到 traderStats[addr].score === undefined
-  → _scheduleQuickScore()（500ms debounce）
-    → calculateScores(traderStats 现有数据)
-    → 写入 score/status/score_reasons
-    → filterUsersByScore() → filteredUsers 更新
-    → recalculateMetrics() → UI 自动更新（检查中 消除）
+```js
+// score === undefined → 身份未知（待评分），不显示
+// score >= minScore   → 庄家，绝不显示
+// score < minScore    → 散户，显示
+// minScore === 0      → 阈值未配置，显示全部已评分用户（仍过滤未评分）
+const visibleTrades = minScore > 0
+    ? trades.filter(t => t.score !== undefined && t.score < minScore)
+    : trades.filter(t => t.score !== undefined);
 ```
 
-**情况 C（极少量）：全新地址，traderStats 完全没有**
-```
-WS 新交易 → 显示"检查中"
-  → 等待 GMGN holder 快照轮询
-  → updateHolderData() → calculateScores（含完整 holder 数据）
-  → 真实 score 写入 → recalculateMetrics() → UI 自动更新
-```
+| 用户状态 | score | 结果 |
+|---------|-------|------|
+| 未评分  | `undefined` | 不显示（身份未知）|
+| 评分=散户 | `< minScore` | 显示 |
+| 评分=庄家 | `>= minScore` | 不显示 |
 
-### BossLogic 评分规则（快速评分时的行为）
-
-| 规则 | 需要 holder 快照 | 快速评分结果 |
-|------|-----------------|-------------|
-| 1. 无资金来源 | 否（检查 funding_account 是否为空） | **触发**（funding_account=undefined → score += weight≈10） |
-| 2. 大额买入 | 是（total_buy_u） | 返回 0 |
-| 3. 时间聚集 | 否（native_transfer.timestamp） | 可触发 |
-| 4. 高 Gas | 否（max_gas_fee） | 可触发 |
-| 5. 持仓价值 | 是（usd_value） | 返回 0 |
-| 6. SOL余额 | 是（sol_balance） | 返回 0 |
-| 7. 排名 | 是（rank） | 返回 0 |
-| 8. 分散买入 | 是（native_transfer 数量） | 返回 0 |
-| 9. 隐藏中转 | 否（sig 指令检测） | 可触发 |
-
-→ 无 holder 快照的新地址快速评分结果：**score ≈ 10**（规则1触发），`updateHolderData()` 到来后覆盖为真实分数。
-
-### 修改过的文件
+### 修改的文件
 
 | 文件 | 位置 | 改动 |
 |------|------|------|
-| `src/helius/MetricsEngine.js` | `getMetrics()` | recentTrades 附加 live score |
-| `src/helius/HeliusMonitor.js` | `handleNewSignature()` | 检测无分地址触发快速评分 |
-| `src/helius/HeliusMonitor.js` | 新增 `_scheduleQuickScore()` | 500ms debounce 快速评分 |
-| `src/sidepanel/App.jsx` | `RecentTradesList` 组件 | minScore prop + 三态显示 |
-| `src/sidepanel/App.jsx` | 调用处 | 传入 `minScore={minScore}` |
-
-### RecentTradesList 三态显示逻辑
-
-```js
-// score 筛选（minScore=0 时不过滤）
-const visibleTrades = minScore > 0
-    ? trades.filter(t => t.score === undefined || t.score < minScore)
-    : trades;
-
-// 标签列渲染
-const isPending = t.score === undefined;
-// 检查中（灰色斜体）/ 正常标签
-{isPending ? '检查中' : (t.label || '散户')}
-```
+| `src/helius/MetricsEngine.js` | `getMetrics()` | recentTrades 同时刷新 `score` + `label` |
+| `src/sidepanel/App.jsx` | `RecentTradesList` | 过滤改为：`score !== undefined && score < minScore` |
+| `src/sidepanel/App.jsx` | `RecentTradesList` | 删除"检查中"状态（未评分用户不进入列表）|
 
 ---
 

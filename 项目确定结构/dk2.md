@@ -38,3 +38,34 @@ traderStats[address] = {
   holding_share_pct,
   ...
 }
+
+
+processNewGmgnTrades
+引擎注入：调用 metricsEngine.processTransaction。这是“计算大脑”，它会根据这笔交易更新该地址的 SOL 消耗、代币余量、并判断其是否为“庄家”。
+
+HOOK_HOLDERS_EVENT
+
+/www/wwwroot/gmgn-extension-react/src/content/HeliusIntegration.js
+/www/wwwroot/gmgn-extension-react/src/content/index.jsx
+HOOK_FETCH_XHR_EVENT 
+上面两个文件 都监听  HOOK_FETCH_XHR_EVENT  是不是 重复了。 这个监听 我记得 主要是 记录 url  方便  ,后面 开启 定时刷新 获取 gmgn trade  holds 数据用的。 
+
+
+
+/www/wwwroot/gmgn-extension-react/src/content/HeliusIntegration.js
+HOOK_SIGNATURES_EVENT  这个看到 监听 了 但是没有看到 谁发送
+
+ 
+HOOK_HOLDERS_EVENT  被收到 触发 updateHolderData ，我看到 HOOK_HOLDERS_EVENT  只有在 EXECUTE_HOOK_REFRESH 得到时候 被发送 。EXECUTE_TRADES_REFRESH 的时候 并没有 触发 ，另外 lastTradesUrlRef  EXECUTE_TRADES_REFRESH 这名字很容易判断 就是处理 /token_trades 信息的 。可是 lastGmgnUrlRef  
+
+另外 EXECUTE_HOOK_REFRESH   /token_holders 把  EXECUTE_TRADES_REFRESH  就是处理 /token_trades 的信息   可是 EXECUTE_HOOK_REFRESH  lastGmgnUrlRef  是处理 /token_holders 信息的 名称 不对称不好辨认 ，都根据  /token_holders  改一下 名字 ，统一 好区分。
+/www/wwwroot/gmgn-extension-react/src/content/index.jsx 
+
+
+EXECUTE_HOLDERS_REFRESH
+EXECUTE_TRADES_REFRESH
+
+
+
+
+

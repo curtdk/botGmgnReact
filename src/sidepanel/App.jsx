@@ -208,10 +208,14 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
 
     if ((!trades || trades.length === 0) && pendingEntries.length === 0) return null;
 
-    // 按 score 过滤：有分数且 >= minScore 的屏蔽；无分数或分数 < minScore 的保留
+    // 只显示明确为散户的交易：
+    //  - score === undefined → 身份未知（待评分），不显示
+    //  - score >= minScore   → 庄家，绝不显示
+    //  - score < minScore    → 散户，显示
+    // minScore === 0 时视为阈值未配置，跳过过滤（显示全部已评分用户）
     const visibleTrades = minScore > 0
-        ? (trades || []).filter(t => t.score === undefined || t.score < minScore)
-        : (trades || []);
+        ? (trades || []).filter(t => t.score !== undefined && t.score < minScore)
+        : (trades || []).filter(t => t.score !== undefined);
 
     const timeAgo = (ts) => {
         const diff = Math.floor((Date.now() - ts) / 1000);
@@ -311,7 +315,6 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                 ))}
                 {visibleTrades.map((t, i) => {
                     const isBuy = t.action === '买入';
-                    const isPending = t.score === undefined;
                     return (
                         <div key={t.signature + i} style={{
                             display: 'flex',
@@ -326,8 +329,8 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                             <span style={{ ...colStyle('56px'), color: '#6b7280' }}>{fmtToken(t.tokenAmount)}</span>
                             <span style={{ ...colStyle('68px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}{flames(t.solAmount)}</span>
                             <span style={{ ...colStyle('36px'), color: '#ffffff', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
-                            <span style={{ flex: 1, textAlign: 'right', color: isPending ? '#4b5563' : '#6b7280', fontStyle: isPending ? 'italic' : 'normal' }}>
-                                {isPending ? '检查中' : (t.label || '散户')}
+                            <span style={{ flex: 1, textAlign: 'right', color: '#6b7280' }}>
+                                {t.label || '散户'}
                             </span>
                         </div>
                     );
@@ -449,8 +452,8 @@ const App = () => {
   const isAutoFilling = useRef(false);
   const autoUpdateTimer = useRef(null);
   const tradesUpdateTimer = useRef(null); // 活动数据定时器
-  const lastGmgnUrlRef = useRef(''); // 存储最新的 GMGN API URL (ref 用于逻辑判断)
-  const lastTradesUrlRef = useRef(''); // 存储最新的 Trades API URL
+  const lastHoldersUrlRef = useRef(''); // 存储最新的 /token_holders URL，供定时刷新使用
+  const lastTradesUrlRef = useRef('');  // 存储最新的 /token_trades  URL，供定时刷新使用
   const lastGmgnHeadersRef = useRef({}); // 存储最新的 API 请求头
   const [hookUrl, setHookUrl] = useState(''); // 存储最新的 GMGN API URL (state 用于触发副作用)
 
@@ -580,7 +583,8 @@ const App = () => {
           const ready = !!(url && (url.includes('/token_holders') || url.includes('/token_trades')));
           setHookUrlReady(ready);
           if (ready) {
-              lastGmgnUrlRef.current = url;
+              if (url.includes('/token_holders')) lastHoldersUrlRef.current = url;
+              else if (url.includes('/token_trades')) lastTradesUrlRef.current = url;
               addLog('Hook URL: ✓ 可用，开始处理...');
               setStartStage('获取数据中...');
               if (apiRefreshEnabledRef.current) handleFullRefresh(false);
@@ -854,7 +858,7 @@ const App = () => {
    */
   const runHookRefresh = async () => {
       if (!isStartedRef.current) return; // 未启动则跳过
-      const url = lastGmgnUrlRef.current;
+      const url = lastHoldersUrlRef.current;
       if (!url) {
           addLog('Hook URL: 无URL，请刷新 GMGN 页面获取');
           return;
@@ -864,9 +868,9 @@ const App = () => {
       // 发送指令给 Content Script 执行真正的 fetch
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs[0]?.id) {
-              chrome.tabs.sendMessage(tabs[0].id, { 
-                  type: 'EXECUTE_HOOK_REFRESH',
-                  url: url 
+              chrome.tabs.sendMessage(tabs[0].id, {
+                  type: 'EXECUTE_HOLDERS_REFRESH',
+                  url: url
               }, (response) => {
                   if (chrome.runtime.lastError) {
                   } else if (response) {
@@ -928,7 +932,7 @@ const App = () => {
       // 2. 重置状态
       setItems([]);
       setStatusLogs(['状态：就绪']);
-      lastGmgnUrlRef.current = '';
+      lastHoldersUrlRef.current = '';
       lastTradesUrlRef.current = ''; // 重置 Trades URL
       setPageMint(mint);
       setHookUrlReady(null);
@@ -937,7 +941,7 @@ const App = () => {
       chrome.storage.local.get([`gmgn_hook_url_${mint}`], (res) => {
           const cachedUrl = res[`gmgn_hook_url_${mint}`];
           if (cachedUrl && (cachedUrl.includes('/token_holders') || cachedUrl.includes('/token_trades'))) {
-              lastGmgnUrlRef.current = cachedUrl;
+              lastHoldersUrlRef.current = cachedUrl;
               setHookUrlReady(true);
               addLog(`Hook URL: ✓ 已从缓存恢复，点击开始即可运行`);
           } else {
@@ -992,10 +996,14 @@ const App = () => {
                 const hookKey = `gmgn_hook_url_${currentMint}`;
                 if (changes[hookKey]) {
                     const newUrl = changes[hookKey].newValue;
-                    if (newUrl && (newUrl.includes('/token_holders') || newUrl.includes('/token_trades'))) {
-                        lastGmgnUrlRef.current = newUrl;
+                    if (newUrl && newUrl.includes('/token_holders')) {
+                        lastHoldersUrlRef.current = newUrl;
                         setHookUrlReady(true);
-                        addLog('Hook URL: ✓ 已自动检测到，可以点击开始');
+                        addLog('Hook URL: ✓ 已自动检测到 holders URL，可以点击开始');
+                    } else if (newUrl && newUrl.includes('/token_trades')) {
+                        lastTradesUrlRef.current = newUrl;
+                        setHookUrlReady(true);
+                        addLog('Hook URL: ✓ 已自动检测到 trades URL，可以点击开始');
                     }
                 }
             }
@@ -1018,22 +1026,29 @@ const App = () => {
                     if (mintMatch && mintMatch[1] !== startedMintRef.current) return;
                 }
 
-                // 更新 URL 引用 (如果 payload 带了 url)
-                if (request.url) {
-                    if (request.url.includes('/token_holders')) {
-                        lastGmgnUrlRef.current = request.url;
-                        // 持久化到 storage，供下次开始前直接使用
-                        if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
-                        setHookUrlReady(true);
-                    } else if (request.url.includes('/token_trades')) {
-                        lastTradesUrlRef.current = request.url;
-                        if (pageMint) chrome.storage.local.set({ [`gmgn_hook_url_${pageMint}`]: request.url });
-                    }
-                }
-
                 setStartStage('运行中 · 实时监听');
                 // 直接更新 UI，Side Panel 变为轻量级渲染器
                 setItems(prev => mergeItems(prev, request.data));
+            }
+        } else if (request.type === 'HOOK_HOLDERS_URL_CAPTURED') {
+            // /token_holders URL 首次捕获（hook.js → index.jsx → 此处）
+            if (request.url) {
+                lastHoldersUrlRef.current = request.url;
+                const mintMatch = request.url.match(/token_holders\/[^/]+\/([^?&/]+)/);
+                if (mintMatch?.[1]) {
+                    chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: request.url });
+                }
+                if (!isStartedRef.current) setHookUrlReady(true);
+            }
+        } else if (request.type === 'HOOK_TRADES_URL_CAPTURED') {
+            // /token_trades URL 首次捕获（hook.js → index.jsx → 此处）
+            if (request.url) {
+                lastTradesUrlRef.current = request.url;
+                const mintMatch = request.url.match(/token_trades\/[^/]+\/([^?&/]+)/);
+                if (mintMatch?.[1]) {
+                    chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: request.url });
+                }
+                if (!isStartedRef.current) setHookUrlReady(true);
             }
         } else if (request.type === 'PRICE_UPDATE') {
             // 处理价格更新
@@ -1154,7 +1169,11 @@ const App = () => {
                          }, 100);
 
                          if (response.hookData.url) {
-                             lastGmgnUrlRef.current = response.hookData.url;
+                             if (response.hookData.url.includes('/token_holders')) {
+                                 lastHoldersUrlRef.current = response.hookData.url;
+                             } else if (response.hookData.url.includes('/token_trades')) {
+                                 lastTradesUrlRef.current = response.hookData.url;
+                             }
                          }
                      }
                  }
@@ -1235,7 +1254,7 @@ const App = () => {
       
       autoUpdateTimer.current = setInterval(() => {
           if (!isStartedRef.current) return; // 未启动跳过
-          const url = lastGmgnUrlRef.current;
+          const url = lastHoldersUrlRef.current;
           if (hookRefreshEnabledRef.current && url) {
               runHookRefresh();
           }

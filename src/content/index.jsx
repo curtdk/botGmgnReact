@@ -1,4 +1,4 @@
-import { getMintFromPage, getPriceFromPage, findPriceDOM, normalize } from '../utils/api';
+import { getMintFromPage, getPriceFromPage, findPriceDOM } from '../utils/api';
 import ContentScoreManager from './ContentScoreManager';
 import FlowerMarker from './FlowerMarker';
 import './HeliusIntegration.js'; // 导入 Helius 集成
@@ -267,97 +267,46 @@ let lastCapturedData = null;
 
 /**
  * 监听 Hook 捕获的数据 (HOOK_FETCH_XHR_EVENT)
+ *
+ * 职责：只做 URL 捕获与传递，不做任何数据处理。
+ *  - /token_holders URL → 存 storage + 发 HOOK_HOLDERS_URL_CAPTURED → App.jsx 存 lastHoldersUrlRef
+ *  - /token_trades  URL → 存 storage + 发 HOOK_TRADES_URL_CAPTURED  → App.jsx 存 lastTradesUrlRef
+ *  - /get_remark_info   → 触发备注同步（逻辑不变）
+ *
+ * 数据处理：
+ *  - /token_holders 数据 由 EXECUTE_HOLDERS_REFRESH → updateGmgnHolders() 负责
+ *  - /token_trades  数据 由 EXECUTE_TRADES_REFRESH  → processFetchedTrades() 负责
+ *  - HOOK_FETCH_XHR_EVENT 只触发 1~2 次（页面自然 XHR），不可依赖它做持续数据处理
  */
 window.addEventListener('HOOK_FETCH_XHR_EVENT', (e) => {
-    // 增加详细的调试日志
-
-    // 首先检查上下文是否有效
     if (!isContextValid()) return;
 
     const detail = e.detail;
     if (!detail || !detail.url) return;
 
-    // 提取 mint 并缓存 URL，供 sidepanel 在开始前直接使用
-    if (detail.url.includes('/token_holders') || detail.url.includes('/token_trades')) {
-        const mintMatch = detail.url.match(/token_(?:holders|trades)\/[^/]+\/([^?&/]+)/);
+    // ── /token_holders URL 捕获 ──
+    if (detail.url.includes('/token_holders')) {
+        const mintMatch = detail.url.match(/token_holders\/[^/]+\/([^?&/]+)/);
         if (mintMatch && mintMatch[1]) {
             chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: detail.url });
         }
+        safeSendMessage({ type: 'HOOK_HOLDERS_URL_CAPTURED', url: detail.url });
     }
 
-    // 仅处理 token_holders 相关请求
-    if (detail.url.includes('/token_holders')) {
-        try {
-            if (!detail.responseBody) return;
-            const json = JSON.parse(detail.responseBody);
-            
-            // 使用 api.js 中的 normalize 函数标准化数据
-            const items = normalize(json);
-            
-            if (items && items.length > 0) {
-                
-                // 1. 更新本地 Manager (基准数据)
-                // contentManager.updateHolders(items);
-
-                // 更新内存暂存
-                lastCapturedData = {
-                    data: contentManager.getSortedItems(), // 暂存融合后的全量数据
-                    url: detail.url,
-                    timestamp: Date.now()
-                };
-
-                // 2. 发送全量融合数据 (UI_RENDER_DATA)
-                // 这里发送的是经过 ContentScoreManager 处理（去重、聚类、排序）后的最终数据
-                // Side Panel 收到后直接 set 即可，无需再次计算
-                safeSendMessage({
-                    type: 'UI_RENDER_DATA',
-                    data: contentManager.getSortedItems(),
-                    url: detail.url
-                });
-
-                // 3. 触发一次页面标记
-                // markTradeUsers();
-            }
-        } catch (err) {
-        }
-    } 
-    // [新增] 处理 token_trades 相关请求
+    // ── /token_trades URL 捕获 ──
     else if (detail.url.includes('/token_trades')) {
-        try {
-
-            if (!detail.responseBody) return;
-            const json = JSON.parse(detail.responseBody);
-            
-            // 直接获取 data 字段 (通常是数组)
-            const trades = json.data?.history || json.data || json; // 兼容不同结构
-            
-            if (trades && (Array.isArray(trades) || trades.length > 0)) {
-                
-                // 1. 更新本地 Manager (增量数据)
-                // contentManager.updateTrades(trades);
-
-                // 2. 发送全量融合数据 (ALL_DATA_UPDATE)
-                safeSendMessage({
-                    type: 'UI_RENDER_DATA',
-                    data: contentManager.getSortedItems(),
-                    url: detail.url
-                });
-
-                // 3. 触发一次页面标记
-                markTradeUsers();
-            }
-        } catch (err) {
+        const mintMatch = detail.url.match(/token_trades\/[^/]+\/([^?&/]+)/);
+        if (mintMatch && mintMatch[1]) {
+            chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: detail.url });
         }
+        safeSendMessage({ type: 'HOOK_TRADES_URL_CAPTURED', url: detail.url });
     }
-    // [新增] 处理 get_remark_info 相关请求
+
+    // ── /get_remark_info → 备注同步（逻辑不变）──
     else if (detail.url.includes('/get_remark_info')) {
-        // 检查开关状态
         chrome.storage.local.get(['auto_sync_remarks'], (res) => {
             if (res.auto_sync_remarks) {
-                if (isFetchingRemarks) {
-                    return;
-                }
-                // [修改] 传递 requestHeaders
+                if (isFetchingRemarks) return;
                 fetchFullRemarks(detail.url, detail.requestHeaders);
             }
         });
@@ -694,32 +643,24 @@ function quickClean(url) {
 
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === 'EXECUTE_HOOK_REFRESH') {
+    if (msg.type === 'EXECUTE_HOLDERS_REFRESH') {
         const url = msg.url;
         if (!url) {
             sendResponse({ success: false, error: 'No URL provided' });
             return;
         }
 
-
         // 使用页面环境的 fetch，自带 Cookie 和同源权限
         fetch(url, {
             method: 'GET',
             credentials: 'include'
         })
-        .then(res => res.text()) // 先拿 text，防止 json 解析失败
+        .then(res => res.text())
         .then(text => {
             try {
-                // 尝试解析 JSON
-                // 验证是否是有效的 API 响应
                 const json = JSON.parse(text);
 
-                // 调试日志：显示 API 响应结构
-
-                // 复用现有的 HOOK_DATA 通道回传数据
-                // 这样 Side Panel 的处理逻辑不用变
-
-                // [修改] 尝试多种可能的 API 结构
+                // 兼容多种 API 结构
                 let items = null;
                 if (json.data && Array.isArray(json.data.list)) {
                     items = json.data.list;
@@ -731,36 +672,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     items = json;
                 }
 
-                // [修复] 使用 normalize 函数统一字段名
+                // 确保 owner 字段存在
                 if (items && Array.isArray(items) && items.length > 0) {
-                    // 导入 normalize 函数（需要在文件顶部添加 import）
-                    // 临时方案：手动 normalize
-                    items = items.map(x => {
-                        const owner = x.owner || x.address || x.wallet_address;
-                        return {
-                            ...x,
-                            owner: owner  // 确保有 owner 字段
-                        };
-                    });
+                    items = items.map(x => ({
+                        ...x,
+                        owner: x.owner || x.address || x.wallet_address
+                    }));
                 }
 
-
                 if (items && Array.isArray(items) && items.length > 0) {
-
-                    // 只调用 HeliusIntegration,不再调用 contentManager
-                    // 转发 holder 数据给 HeliusIntegration
-                    window.dispatchEvent(new CustomEvent('HOOK_HOLDERS_EVENT', {
-                        detail: {
-                            holders: items
-                        }
-                    }));
-
-                    // 更新 Helius 集成的持有者列表
+                    // 唯一数据入口：直接调用 updateGmgnHolders，由它触发评分和 UI 推送
                     if (window.__heliusIntegration) {
                         window.__heliusIntegration.updateGmgnHolders(items);
-                    } else {
                     }
-
                     sendResponse({ success: true, count: items.length });
                 } else {
                     sendResponse({ success: false, error: 'No valid holder data' });

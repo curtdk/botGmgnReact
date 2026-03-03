@@ -22,9 +22,6 @@ class HeliusIntegration {
     this._isFirstMintDetection = true; // 整页加载后首次检测到 mint 的标记
 
     // 事件处理器引用（用于清理）
-    this.hookSignaturesHandler = null;
-    this.hookFetchXhrHandler = null;
-    this.hookHolderHandler = null;
     this.gmgnTradesLoadedHandler = null;
     this.pageObserver = null;
     this.checkInterval = null;
@@ -111,104 +108,16 @@ class HeliusIntegration {
 
   /**
    * 设置 hook 事件监听
+   *
+   * 数据流职责说明：
+   *  - HOOK_FETCH_XHR_EVENT：仅由 index.jsx 负责 URL 捕获，HeliusIntegration 不再监听
+   *  - HOOK_SIGNATURES_EVENT：已废弃（hook.js 不发送此事件），已删除
+   *  - HOOK_HOLDERS_EVENT：已废弃（由 updateGmgnHolders 直接调用替代），已删除
+   *  - 实时 trade 数据全部通过 EXECUTE_TRADES_REFRESH → processFetchedTrades() 流入
+   *  - Monitor 初始化解锁信号来自 GMGN_TRADES_LOADED（EXECUTE_TRADES_REFRESH 结尾发送）
    */
   setupHookListeners() {
-    // 监听 signatures 事件（快速通道）
-    this.hookSignaturesHandler = (event) => {
-      const { signatures, source } = event.detail;
-
-      if (!this.monitor) return;
-
-
-      signatures.forEach(sig => {
-        this.monitor.signatureManager.addSignature(sig, source);
-      });
-    };
-    window.addEventListener('HOOK_SIGNATURES_EVENT', this.hookSignaturesHandler);
-
-    // 监听 GMGN holder 数据
-    this.hookHolderHandler = async (event) => {
-      try {
-        const data = event.detail;
-        if (data && data.holders && Array.isArray(data.holders)) {
-          // 如果 monitor 不存在，记录警告
-          if (!this.monitor) {
-            return;
-          }
-
-          // 传递配置给 HeliusMonitor
-          this.monitor.setBossConfig(this.bossConfig);
-          this.monitor.setScoreThreshold(this.scoreThreshold);
-          this.monitor.setStatusThreshold(this.statusThreshold);
-
-          await this.monitor.updateHolderData(data.holders);
-
-          // 发送数据到 Sidepanel
-          this.sendDataToSidepanel();
-        }
-      } catch (err) {
-      }
-    };
-    window.addEventListener('HOOK_HOLDERS_EVENT', this.hookHolderHandler);
-
-    // 监听完整 XHR 事件（处理分页数据）
-    this.hookFetchXhrHandler = (event) => {
-      const detail = event.detail;
-
-      // 如果是 token_trades，提取完整的 trade 数据
-      // 注意：这里会捕获所有分页的数据，因为现有代码会循环获取所有页
-      if (detail.url.includes('/token_trades/')) {
-        try {
-          const json = JSON.parse(detail.responseBody);
-
-          // 兼容多种数据结构
-          let trades = [];
-          if (json.history && Array.isArray(json.history)) {
-            trades = json.history;
-          } else if (json.data && json.data.history && Array.isArray(json.data.history)) {
-            trades = json.data.history;
-          } else {
-            trades = json.data?.history || json.data || [];
-            if (!Array.isArray(trades)) trades = [];
-          }
-
-          if (trades.length > 0) {
-            if (!this.monitor) {
-              return;
-            }
-
-            let newTradesCount = 0;
-            const newTrades = [];
-
-            trades.forEach(trade => {
-              if (trade.tx_hash) {
-                const isNew = !this.monitor.signatureManager.signatures.has(trade.tx_hash);
-                this.monitor.signatureManager.addSignature(trade.tx_hash, 'plugin', trade);
-                if (isNew) { newTradesCount++; newTrades.push(trade); }
-              }
-            });
-
-            if (newTradesCount > 0) {
-              const initState = this.monitor.isInitialized ? '实时处理' : '等待初始化完成';
-              this.sendStatusLog(`GMGN Hook: ${trades.length} 条交易 (新增${newTradesCount}) [${initState}]`);
-
-            }
-
-            if (this.monitor.isInitialized && newTradesCount > 0) {
-              this.processNewGmgnTrades(newTrades);
-            } else if (!this.monitor.isInitialized && newTradesCount > 0 && this.monitor.onGmgnDataLoaded) {
-              // Hook 拦截到数据，且 Monitor 仍在初始化中（等待 GMGN 信号）
-              // 直接解除并行等待，不必等 EXECUTE_TRADES_REFRESH 发起的分页拉取
-              this.monitor.onGmgnDataLoaded();
-            }
-          }
-        } catch (err) {
-        }
-      }
-    };
-    window.addEventListener('HOOK_FETCH_XHR_EVENT', this.hookFetchXhrHandler);
-
-    // 监听 GMGN 分页数据加载完成事件
+    // 监听 GMGN 分页数据加载完成事件（由 EXECUTE_TRADES_REFRESH 结尾触发，解锁 Monitor 初始化）
     this.gmgnTradesLoadedHandler = (_event) => {
       if (!this.monitor) return;
 
@@ -744,8 +653,12 @@ class HeliusIntegration {
    */
   setManualScore(address, status) {
 
-    // 存储手动标记
-    this.manualStatusMap[address] = status;
+    // 存储手动标记：取消标记时删除条目，避免重启时残留
+    if (status === '散户') {
+      delete this.manualStatusMap[address];
+    } else {
+      this.manualStatusMap[address] = status;
+    }
 
     // 持久化到 Chrome storage
     chrome.storage.local.set({
@@ -814,19 +727,7 @@ class HeliusIntegration {
    */
   cleanup() {
 
-    // 1. 清理事件监听器（注意：通常不需要清理，因为是全局监听）
-    if (this.hookSignaturesHandler) {
-      window.removeEventListener('HOOK_SIGNATURES_EVENT', this.hookSignaturesHandler);
-      this.hookSignaturesHandler = null;
-    }
-    if (this.hookFetchXhrHandler) {
-      window.removeEventListener('HOOK_FETCH_XHR_EVENT', this.hookFetchXhrHandler);
-      this.hookFetchXhrHandler = null;
-    }
-    if (this.hookHolderHandler) {
-      window.removeEventListener('HOOK_HOLDERS_EVENT', this.hookHolderHandler);
-      this.hookHolderHandler = null;
-    }
+    // 1. 清理事件监听器
     if (this.gmgnTradesLoadedHandler) {
       window.removeEventListener('GMGN_TRADES_LOADED', this.gmgnTradesLoadedHandler);
       this.gmgnTradesLoadedHandler = null;

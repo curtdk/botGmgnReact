@@ -384,7 +384,8 @@ export default class MetricsEngine {
       skippedWhaleCount: this.skippedWhaleCount,
       recentTrades: this.recentTrades.slice(0, 150).map(t => ({
         ...t,
-        score: this.traderStats[t.address]?.score
+        score: this.traderStats[t.address]?.score,
+        label: this.traderStats[t.address]?.status || null  // 实时刷新 label，反映最新评分结果
       }))
     };
   }
