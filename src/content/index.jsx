@@ -794,6 +794,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         nextCursor = json.data?.next || json.next;
                     }
 
+                    // [诊断] 接口原始数据日志
+                    console.log(`[GMGN-API-RAW] 第${pageCount + 1}页 共${trades.length}条\n` +
+                        trades.map((t, i) => `  [${i}] ${t.tx_hash?.slice(0, 12)} ts=${t.timestamp} event=${t.event} maker=${t.maker?.slice(0, 8)}`).join('\n'));
+
                     // 4. 更新数据 - 直接调用 HeliusIntegration，统一走 HeliusMonitor 数据体系
                     let newCount = 0;
                     if (trades.length > 0) {
@@ -803,6 +807,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         }
                         markTradeUsers();
                     }
+
+                    // [诊断] 处理结果日志
+                    console.log(`[GMGN-PROCESSED] 第${pageCount + 1}页 新增=${newCount}条 / 共${trades.length}条`);
 
 
                     // [新增] 发送进度消息给 SidePanel (仅从第二页开始)

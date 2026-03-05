@@ -382,18 +382,27 @@ class HeliusIntegration {
     }
 
 
-    // 按时间排序（从旧到新），确保 MetricsEngine unshift 后最新交易在顶部
-    // 同一时间戳内：用 SignatureManager.createdAt DESC 作为 tie-breaker
-    // GMGN 以最新在前的顺序插入 addSignature，故最新 sig 的 createdAt 最小，最旧的最大
-    // createdAt DESC = 最旧优先处理 = unshift 后最新在顶 ✓
-    const sortedTrades = [...trades].sort((a, b) => {
-      const tDiff = (a.timestamp || 0) - (b.timestamp || 0);
-      if (tDiff !== 0) return tDiff;
-      // 同时间戳：按 SignatureManager 中的 createdAt DESC（最旧的 createdAt 最大）
-      const stateA = this.monitor.signatureManager.getState(a.tx_hash);
-      const stateB = this.monitor.signatureManager.getState(b.tx_hash);
-      return (stateB?.createdAt || 0) - (stateA?.createdAt || 0);
-    });
+    // ── 排序原则：GMGN 接口返回顺序即正确顺序（index=0最新，index越大越旧）──
+    // 排序目标：最旧先处理 → MetricsEngine unshift 压到底部 → 最新浮在 recentTrades 顶部
+    // 每次调用仅处理单页新 sig，按页内 index DESC 即可（index越大越旧，先处理沉底）
+    const tradeIndexMap = new Map(trades.map((t, i) => [t.tx_hash, i]));
+
+    // [日志] 排序前：GMGN 接口原始顺序（完整列表，index=0最新，搜索 "GMGN排序-原始" 定位）
+    if (dataFlowLogger.enabled && trades.length > 0) {
+      const fullList = trades.map((t, i) => `[${i}] ${t.tx_hash?.slice(0, 12)} ts=${t.timestamp} ${t.event||''}`).join('\n');
+      dataFlowLogger.log('GMGN-Hook', `GMGN排序-原始(共${trades.length}条 index0最新)`, fullList, null);
+    }
+
+    // 仅按页内 index DESC 排序（不依赖 timestamp / createdAt）
+    const sortedTrades = [...trades].sort((a, b) =>
+      (tradeIndexMap.get(b.tx_hash) ?? 0) - (tradeIndexMap.get(a.tx_hash) ?? 0)
+    );
+
+    // [日志] 排序后：处理顺序（完整列表，先旧后新，搜索 "GMGN排序-处理" 定位）
+    if (dataFlowLogger.enabled && trades.length > 0) {
+      const fullSorted = sortedTrades.map((t, i) => `[处理${i}] apiIdx=${tradeIndexMap.get(t.tx_hash)} ${t.tx_hash?.slice(0, 12)} ts=${t.timestamp} ${t.event||''}`).join('\n');
+      dataFlowLogger.log('GMGN-Hook', `GMGN排序-处理(共${sortedTrades.length}条 先旧后新)`, fullSorted, null);
+    }
 
     let processedCount = 0;
     let skippedCount = 0;
@@ -495,6 +504,9 @@ class HeliusIntegration {
   processFetchedTrades(trades) {
     if (!trades || trades.length === 0) return;
 
+    // [诊断] 始终打印，不受 logger 限制 —— 搜索 "GMGN-FETCH-DIAG" 定位
+    console.log(`[GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=${trades.length} monitor=${!!this.monitor} isInit=${this.monitor?.isInitialized} loggerOn=${dataFlowLogger.enabled}`);
+
     if (!this.monitor) {
       return;
     }
@@ -513,6 +525,19 @@ class HeliusIntegration {
       }
     });
 
+
+    if (dataFlowLogger.enabled) {
+      const stats = this.monitor.signatureManager.getStats();
+      // 接口返回整页原始顺序（含重复项，反映 GMGN API 真实返回顺序，搜索 "GMGN分页-接口" 定位）
+      const rawFull = trades.map((t, i) => `[${i}] ${t.tx_hash?.slice(0, 12)} ts=${t.timestamp} ${t.event||''}`).join('\n');
+      dataFlowLogger.log('GMGN-Hook', `GMGN分页-接口原始(共${trades.length}条 index0最新)`, rawFull, null);
+
+      if (this.monitor.isInitialized) {
+        dataFlowLogger.log('GMGN-Hook', 'GMGN分页到达(已初始化)', `本页=${trades.length}条，新增=${newTradesCount}条，sig总=${stats.total}，→ 走实时排序路径`, null);
+      } else {
+        dataFlowLogger.log('GMGN-Hook', 'GMGN分页到达(初始化中)', `本页=${trades.length}条，新增=${newTradesCount}条，sig总=${stats.total}，存入SignatureManager等待续算`, null);
+      }
+    }
 
     if (this.monitor.isInitialized && newTradesCount > 0) {
       this.processNewGmgnTrades(newTrades);

@@ -26,6 +26,9 @@ export default class SignatureManager {
     // 累计初始获取计数（跨多次 verify 叠加）
     this.cumulativeInitialCount = 0;
 
+    // 单调递增插入序号（用于同秒 GMGN sig 的稳定排序，避免 Date.now() 同ms碰撞问题）
+    this._insertSeq = 0;
+
     // 等待状态
     this.isWaiting = false;
     this.waitStartTime = null;
@@ -69,7 +72,8 @@ export default class SignatureManager {
         // 时间戳：优先用 blockTime（秒→毫秒），其次 GMGN timestamp，最后当前时间
         timestamp: blockTime ? blockTime * 1000 : (gmgnData?.timestamp ? gmgnData.timestamp * 1000 : Date.now()),
         txData,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        insertSeq: ++this._insertSeq   // 单调递增序号，保证同ms也能区分插入顺序
       });
 
       if (this.sources[source]) this.sources[source].add(sig);
@@ -189,7 +193,7 @@ export default class SignatureManager {
     const ready = [];
     for (const [sig, state] of this.signatures.entries()) {
       if (state.hasData && !state.isProcessed) {
-        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData, timestamp: state.timestamp, createdAt: state.createdAt });
+        ready.push({ sig, slot: state.slot, blockTime: state.blockTime, blockIndex: state.blockIndex, txData: state.txData, timestamp: state.timestamp, insertSeq: state.insertSeq });
       }
     }
     // 从旧到新：优先用 blockTime（Helius精确时间），slot=0时用 timestamp 兜底
@@ -199,10 +203,9 @@ export default class SignatureManager {
       const tA = a.blockTime > 0 ? a.blockTime * 1000 : (a.timestamp || 0);
       const tB = b.blockTime > 0 ? b.blockTime * 1000 : (b.timestamp || 0);
       if (tA !== tB) return tA - tB;
-      // 同时间：GMGN sig（slot=0）由 GMGN API 插入，API 返回顺序为最新在前
-      // 所以较老的 sig 反而 createdAt 较大（后插入），用 createdAt DESC 确保老 sig 先处理
-      // MetricsEngine 用 unshift，先处理 = 最终在 recentTrades 末尾，符合"旧在下"预期
-      if (a.slot === 0 && b.slot === 0) return (b.createdAt || 0) - (a.createdAt || 0);
+      // 同时间：GMGN sig（slot=0）用 insertSeq DESC（insertSeq越大=越晚插入=API中越靠后=越旧，先处理沉底）
+      // insertSeq 是单调递增计数器，同ms内也能区分插入顺序，彻底解决 createdAt 同ms碰撞问题
+      if (a.slot === 0 && b.slot === 0) return (b.insertSeq || 0) - (a.insertSeq || 0);
       // Helius sig 同 blockTime：按 blockIndex ASC（区块内顺序）
       return (a.blockIndex || 0) - (b.blockIndex || 0);
     });
@@ -227,7 +230,7 @@ export default class SignatureManager {
           blockIndex: state.blockIndex,
           txData: state.txData,
           timestamp: state.timestamp,
-          createdAt: state.createdAt,
+          insertSeq: state.insertSeq,
           hasData: state.hasData
         });
       }
@@ -238,7 +241,7 @@ export default class SignatureManager {
       const tA = a.blockTime > 0 ? a.blockTime * 1000 : (a.timestamp || 0);
       const tB = b.blockTime > 0 ? b.blockTime * 1000 : (b.timestamp || 0);
       if (tA !== tB) return tA - tB;
-      if (a.slot === 0 && b.slot === 0) return (b.createdAt || 0) - (a.createdAt || 0);
+      if (a.slot === 0 && b.slot === 0) return (b.insertSeq || 0) - (a.insertSeq || 0);
       return (a.blockIndex || 0) - (b.blockIndex || 0);
     });
 

@@ -119,6 +119,10 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   async start() {
+
+     // ── [调试] 仅 GMGN 模式：注释下面这行恢复完整模式 ──
+    this.heliusApiEnabled = false;   // ← 加这一行
+
     this._log(`启动中... mint=${this.mint.slice(0, 8)}...`);
     dataFlowLogger.log('启动', 'Step 0: 开始', `mint=${this.mint.slice(0, 8)}...`);
 
@@ -211,10 +215,10 @@ export default class HeliusMonitor {
 
       // 9. 启动动态 verify，首次使用大窗口（500条）桥接整个 init 时间段可能漏掉的链上 sig
       //    正常 verify 用 50/200，但 init 期间可能积累大量 sig，首次必须拉更宽
-      this._verifyMissCount = 1; // 触发 200 条窗口（不足500，故下面单独处理）
-      this.verifySignatures(500).finally(() => {
-        if (!this.isStopped) this._scheduleNextVerify();
-      });
+      // this._verifyMissCount = 1; // 触发 200 条窗口（不足500，故下面单独处理）
+      // this.verifySignatures(500).finally(() => {
+      //   if (!this.isStopped) this._scheduleNextVerify();
+      // });
 
     } catch (error) {
       if (!this.isStopped) {
@@ -239,9 +243,22 @@ export default class HeliusMonitor {
    */
   async _earlyPublishGmgnTrades() {
     const readyNow = this.signatureManager.getReadySignatures();
-    if (readyNow.length === 0 || this.isStopped) return;
+    if (this.isStopped) return;
+    if (readyNow.length === 0) {
+      this._log('[Step5] 暂无就绪 sig，跳过预览（GMGN 数据可能晚于超时到达，将走阶段2续算）');
+      dataFlowLogger.log('启动', 'Step 5 跳过', `readyNow=0，无法预览。若GMGN数据晚到，将由onGmgnDataLoaded阶段2处理`, null);
+      return;
+    }
 
-    this._log(`GMGN 数据已到，提前展示 ${readyNow.length} 条交易列表（指标等全量数据后统一计算）...`);
+    this._log(`[Step5] 提前预览 ${readyNow.length} 条 GMGN 交易（实时列表，指标等全量后统一计算）...`);
+    dataFlowLogger.log('启动', 'Step 5: 提前预览', `就绪sig=${readyNow.length}条，构建预览交易列表推送UI`, null);
+
+    // [诊断日志] 预览排序结果（从旧到新，旧的先处理→unshift→沉底，新的后处理→浮顶）
+    if (dataFlowLogger.enabled) {
+      const first = readyNow[0];
+      const last  = readyNow[readyNow.length - 1];
+      dataFlowLogger.log('HeliusMonitor', 'Step5 预览排序', `共${readyNow.length}条 | 最旧(先处理)sig=${first?.sig?.slice(0,8)} slot=${first?.slot} ts=${first?.blockTime||first?.timestamp} | 最新(后处理)sig=${last?.sig?.slice(0,8)} slot=${last?.slot} ts=${last?.blockTime||last?.timestamp}`, null);
+    }
 
     // 仅构建预览 recentTrades 给 UI 展示（不调用 processTransaction，不改变 traderStats）
     // 不 markProcessed → performInitialCalculation 会按正确顺序重新处理这些 sig
@@ -270,6 +287,7 @@ export default class HeliusMonitor {
       const emptyMetrics = this.metricsEngine.getMetrics();
       emptyMetrics.recentTrades = previewTrades;
       this.onMetricsUpdate(emptyMetrics);
+      dataFlowLogger.log('启动', 'Step 5 ✅ 预览推送', `已推送 ${previewTrades.length} 条预览交易到UI（4大参数暂为0，等Step7计算后更新）`, null);
     }
   }
 
@@ -301,8 +319,27 @@ export default class HeliusMonitor {
     this.onGmgnDataLoaded = () => {
       if (this.isStopped) return;
       const stats = this.signatureManager.getStats();
-      this._log(`GMGN 数据已接收，当前 sig 总数: ${stats.total}`);
-      if (this.gmgnDataLoadedResolve) this.gmgnDataLoadedResolve();
+      if (this.gmgnDataLoadedResolve) {
+        // ── 阶段1：初始化等待中，GMGN 数据准时到达 ──
+        this._log(`[GMGN] 数据到达，当前 sig 总数: ${stats.total}，解除等待，继续初始化...`);
+        dataFlowLogger.log('HeliusMonitor', '✅ GMGN数据到达(阶段1)', `sig总数=${stats.total}，正常流程：→ Step5预览 → Step6补全 → Step7计算`, null);
+        this.gmgnDataLoadedResolve();
+        this.gmgnDataLoadedResolve = null;
+      } else if (this.isInitialized) {
+        // ── 阶段2：初始化已完成，GMGN 数据晚到（超出10s等待）──
+        // 直接按 SignatureManager 时序处理已存储但未处理的 sig，确保顺序正确
+        this._log(`[GMGN] 数据晚到（初始化已完成），sig 总数: ${stats.total}，触发时序续算...`);
+        dataFlowLogger.log('HeliusMonitor', '⚠ GMGN数据晚到(阶段2)', `sig总数=${stats.total}，跳过earlyPublish/initCalc，直接按SignatureManager时序续算`, null);
+        this._tryProcessUnblocked().then(() => {
+          const afterStats = this.signatureManager.getStats();
+          dataFlowLogger.log('HeliusMonitor', '✅ GMGN晚到续算完成', `已处理=${this.metricsEngine.processedCount}条，sig总数=${afterStats.total}`, null);
+          this._fireMetricsUpdate();
+        });
+      } else {
+        // 初始化进行中但 gmgnDataLoadedResolve 已置空（已超时解除等待，初始化尚未完成）
+        this._log(`[GMGN] 数据到达，但初始化仍在进行中（sig 总数: ${stats.total}），等待 Step8 完成后自动处理`);
+        dataFlowLogger.log('HeliusMonitor', '⏳ GMGN数据到达(初始化中)', `超时后GMGN到达，初始化尚未完成，sig总数=${stats.total}，Step8后将由续算流程处理`, null);
+      }
     };
 
     // Helius sig 流式获取（并行启动，不阻塞 GMGN 等待）
@@ -315,7 +352,12 @@ export default class HeliusMonitor {
     clearInterval(this.progressInterval);
 
     if (raceResult === 'timeout') {
-      this._log('GMGN 数据等待超时 (10s)，继续处理已有数据');
+      const timeoutStats = this.signatureManager.getStats();
+      this._log(`[等待超时] GMGN 数据未在 10s 内到达，继续初始化（当前 sig=${timeoutStats.total}）。GMGN 数据到达后将自动触发阶段2续算。`);
+      dataFlowLogger.log('启动', 'Step 4 ⚠ GMGN等待超时', `GMGN数据未在10s内到达，已有sig=${timeoutStats.total}。后续GMGN到达时走"阶段2晚到续算"路径`, null);
+    } else {
+      const okStats = this.signatureManager.getStats();
+      dataFlowLogger.log('启动', 'Step 4 GMGN准时到达', `sig总数=${okStats.total}，流程正常继续`, null);
     }
 
     // 等待 Helius 流式获取完成（通常此时早已完成）
@@ -488,6 +530,13 @@ export default class HeliusMonitor {
     const gapCount = this.signatureManager.getMissingSignatures().length;
     this._log(`处理历史交易: ${readySignatures.length} 条（顺序计算）${gapCount > 0 ? `，仍有 ${gapCount} 条缺口待补全` : ''}`);
     this.metricsEngine.setTotalTransactions(readySignatures.length);
+
+    // [诊断日志] Step7 计算排序结果
+    if (dataFlowLogger.enabled) {
+      const first = readySignatures[0];
+      const last  = readySignatures[readySignatures.length - 1];
+      dataFlowLogger.log('HeliusMonitor', 'Step7 计算排序', `共${readySignatures.length}条 | 最旧(先处理)sig=${first?.sig?.slice(0,8)} slot=${first?.slot} ts=${first?.blockTime||first?.timestamp} | 最新(后处理)sig=${last?.sig?.slice(0,8)} slot=${last?.slot} ts=${last?.blockTime||last?.timestamp}`, null);
+    }
 
     for (const item of readySignatures) {
       if (this.isStopped) return;

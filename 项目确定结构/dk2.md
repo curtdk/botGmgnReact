@@ -64,8 +64,49 @@ HOOK_HOLDERS_EVENT  被收到 触发 updateHolderData ，我看到 HOOK_HOLDERS_
 
 EXECUTE_HOLDERS_REFRESH
 EXECUTE_TRADES_REFRESH
+本轮下注 / 本轮成本 / 已落袋 / 浮盈浮亏 计算链路：processTransaction    → updateTraderState(address, isBuy, solAmount, tokenAmount)   getMetrics
+ 
+
+每次 getMetrics() 都是从 traderStats 实时聚合，无累积误差
+
+processNewGmgnTrades 
+sortedTrades.sort((a, b) => {
+  const tDiff = (a.timestamp || 0) - (b.timestamp || 0);  // 时间戳升序（旧→新）
+
+
+  updateTrades
+  processNewGmgnTrades
+
+  1.WS 与 EXECUTE_TRADES_REFRESH 的配合  中 首先ws 得到的是 sig  没有 具体tx 信息  同样  verifySignatures() 拉取最新 50/200/500 sigs ，  这里有没有去 使用 通过 gmgn trade 已经获取到的信息tx ，而不需要自己api 获取的环节  
+
+  2.EXECUTE_HOLDERS_REFRESH — 每次都全量评分，可优化   优化很好 ，是否可以进一步 如果 有变化 ，是否是 只处理 有变化的用户的 评分。
 
 
 
+
+
+
+  
+  1.通过helius  API 获取 single， 一次获取 1000 条，然后呢第一次轮询。
+  2. WS 接入从接入那个时刻开始获取 single，然后呢它也是一直在获取。
+  上面这两个 single 呢都是没有具体的 tx 数据的，只是 single。 接下来呢，
+  3. GMGN 直接抓取现有的 TX， 通过翻页，这个翻页呢，是先拿最新的，然后再一页一页的往后翻，翻到最旧的 也可能不到最旧的，有了这三条线以后呢，我要做一个拼接。
+  
+  一个标准信息数据 包含两部分 1. sig 2. tx  .
+  1.helius api 获取 sig 也可以根据 sig 获取tx  ，一次可获取 1000 条， 第一次轮询翻页 查询全部的sig 
+  2.ws 只能获取 sig  ,tx的补全 通过 helius api  和 gmgn hook 获取tx .  优先使用 gmgn hook 获取的tx  去补全 ws 的tx  ，缺少的用 helius api 获取tx 
+  3. gmgn hook 获取 tx 
+  首先是排序，每条线路都要有正常的一致的排序 配合最后的显示 最新的在最顶部输出，其中 helius API 的 single，它是一个非常的标准的一个排序 排名最高 可靠性最强，然后 WS 从它第一次获取拿到后再继续接收更新的。 GMGN hook TX 的获取呢，它最第一次的是通过翻页，翻页的话就是也是先拿最新的一页，再往后的获取呢，翻页过后是每一次读取当前第一页 没有有重复 就不在向一下页面继续获取, 并且操作以后通常数据也不是全部的，它有一些数据是它拿不到最前面的数据，所以会有遗漏，遗漏那部分呢，还是需要helius API 自己单独再获取一次 TX 。  这三组数据    helius API 是最慢最慢的，其次的是 WS， 最快的呢就是 GMGN hook 的 TX。 
+  
+  4.还有一个问题就是我计算数据的合计的时候比如4大参数，必须在全部填充的数据，而且排序准确的数据下面计算,只有这样的计算才准确才能够用。
+  5.还有 由于很多sig  是同一秒 时间 所以 不建议 使用 建立 时间排序。 
+
+  
+6.为了完成上面目标我认为 我们要 1. 三组数据 排序都要正确。 2 .完成 tx 缺失 补全。3.形成一个 完整的 tx  并顺序准确。4，计算数据的时候需要计算到完全满足上面条件的数据，，没有完成就等到完成继续核算。
+7.最终整合一组 完整的数据 进行 处理
+
+
+
+runTradesRefresh  
 
 

@@ -454,6 +454,8 @@ const App = () => {
   const tradesUpdateTimer = useRef(null); // 活动数据定时器
   const lastHoldersUrlRef = useRef(''); // 存储最新的 /token_holders URL，供定时刷新使用
   const lastTradesUrlRef = useRef('');  // 存储最新的 /token_trades  URL，供定时刷新使用
+  const holdersUrlFailCountRef = useRef(0); // 连续失败计数（holders URL 失效检测）
+  const tradesUrlFailCountRef = useRef(0);  // 连续失败计数（trades URL 失效检测）
   const lastGmgnHeadersRef = useRef({}); // 存储最新的 API 请求头
   const [hookUrl, setHookUrl] = useState(''); // 存储最新的 GMGN API URL (state 用于触发副作用)
 
@@ -570,6 +572,8 @@ const App = () => {
 
   /** 开始处理 */
   const handleStart = () => {
+      console.log('[dk] 开始handleStart ');
+
       if (!pageMint) { addLog('未检测到代币，请先访问 GMGN 代币页面'); return; }
       setIsStarted(true);
       setStartedMint(pageMint);
@@ -776,6 +780,8 @@ const App = () => {
    */
   const handleFullRefresh = async (quiet = false) => {
       if (!isStartedRef.current) return; // 未启动则跳过
+        console.log('[dk] handleFullRefresh  全量 hook ');
+
       if(!quiet) { addLog('状态：正在全量获取...'); setStartStage('获取持仓数据...'); }
       
       try {
@@ -860,10 +866,11 @@ const App = () => {
       if (!isStartedRef.current) return; // 未启动则跳过
       const url = lastHoldersUrlRef.current;
       if (!url) {
-          addLog('Hook URL: 无URL，请刷新 GMGN 页面获取');
+          addLog('EXECUTE_HOLDERS_REFRESH URL: 无URL，请刷新 GMGN 页面获取');
           return;
       }
-      
+      console.log(`[runHookRefresh] 触发 url=${url.slice(0, 60)}`);
+      addLog('[Holders] 刷新触发');
       
       // 发送指令给 Content Script 执行真正的 fetch
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -873,11 +880,22 @@ const App = () => {
                   url: url
               }, (response) => {
                   if (chrome.runtime.lastError) {
+                      // content script 不可达，不计入 URL 失效
                   } else if (response) {
-                      // console.log('[GMGN App] Hook refresh response:', response);
+                      if (response.success === false) {
+                          holdersUrlFailCountRef.current += 1;
+                          if (holdersUrlFailCountRef.current >= 3) {
+                              addLog('⚠ Holders URL 已失效，请刷新 GMGN 页面重新获取');
+                              lastHoldersUrlRef.current = '';
+                              setHookUrlReady(false);
+                              holdersUrlFailCountRef.current = 0;
+                          }
+                      } else {
+                          holdersUrlFailCountRef.current = 0;
+                      }
                   }
               });
-              addLog('Hook刷新: 请求已发送...');
+              addLog('EXECUTE_HOLDERS_REFRESH 刷新: 请求已发送...');
           }
       });
   };
@@ -888,19 +906,29 @@ const App = () => {
   const runTradesRefresh = async () => {
       const url = lastTradesUrlRef.current;
       if(!url) return;
-      
-      // console.log('[GMGN App] Requesting Trades Refresh:', url);
-      
+      console.log(`[runTradesRefresh] 触发 url=${url.slice(0, 60)}`);
+      addLog('[Trades] 刷新触发');
+
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs[0]?.id) {
               // addLog('活动刷新: 正在请求...');
-              chrome.tabs.sendMessage(tabs[0].id, { 
+              chrome.tabs.sendMessage(tabs[0].id, {
                   type: 'EXECUTE_TRADES_REFRESH',
-                  url: url 
+                  url: url
               }, (response) => {
                   if (chrome.runtime.lastError) {
+                      // content script 不可达，不计入 URL 失效
                   } else if (response) {
-                      // console.log('[GMGN App] Trades refresh response:', response);
+                      if (response.success === false && response.error !== 'Already fetching') {
+                          tradesUrlFailCountRef.current += 1;
+                          if (tradesUrlFailCountRef.current >= 3) {
+                              addLog('⚠ Trades URL 已失效，请刷新 GMGN 页面重新获取');
+                              lastTradesUrlRef.current = '';
+                              tradesUrlFailCountRef.current = 0;
+                          }
+                      } else if (response.success !== false) {
+                          tradesUrlFailCountRef.current = 0;
+                      }
                   }
               });
           }
@@ -934,6 +962,8 @@ const App = () => {
       setStatusLogs(['状态：就绪']);
       lastHoldersUrlRef.current = '';
       lastTradesUrlRef.current = ''; // 重置 Trades URL
+      holdersUrlFailCountRef.current = 0; // 重置失败计数
+      tradesUrlFailCountRef.current = 0;
       setPageMint(mint);
       setHookUrlReady(null);
 
@@ -1034,6 +1064,7 @@ const App = () => {
             // /token_holders URL 首次捕获（hook.js → index.jsx → 此处）
             if (request.url) {
                 lastHoldersUrlRef.current = request.url;
+                holdersUrlFailCountRef.current = 0; // 新 URL 到来，重置失败计数
                 const mintMatch = request.url.match(/token_holders\/[^/]+\/([^?&/]+)/);
                 if (mintMatch?.[1]) {
                     chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: request.url });
@@ -1044,6 +1075,7 @@ const App = () => {
             // /token_trades URL 首次捕获（hook.js → index.jsx → 此处）
             if (request.url) {
                 lastTradesUrlRef.current = request.url;
+                tradesUrlFailCountRef.current = 0; // 新 URL 到来，重置失败计数
                 const mintMatch = request.url.match(/token_trades\/[^/]+\/([^?&/]+)/);
                 if (mintMatch?.[1]) {
                     chrome.storage.local.set({ [`gmgn_hook_url_${mintMatch[1]}`]: request.url });
@@ -1188,33 +1220,6 @@ const App = () => {
     };
   }, []);
 
-  // 启动活动数据自动刷新
-  useEffect(() => {
-      const enabled = activityMonitorEnabled;
-      const sec = parseInt(activityMonitorInterval) || 3;
-
-      if (tradesUpdateTimer.current) clearInterval(tradesUpdateTimer.current);
-
-      if (!enabled) {
-          if (tradesUpdateTimer.current) addLog('状态：交易监听已停止');
-          tradesUpdateTimer.current = null;
-          return;
-      }
-
-      addLog(`状态：交易监听已启动 (${sec}s)`);
-      
-      tradesUpdateTimer.current = setInterval(() => {
-          const url = lastTradesUrlRef.current;
-          if (url) {
-              runTradesRefresh();
-          }
-      }, sec * 1000);
-
-      return () => {
-          if (tradesUpdateTimer.current) clearInterval(tradesUpdateTimer.current);
-      };
-  }, [activityMonitorEnabled, activityMonitorInterval]);
-
   // 定期查询 Helius 校验状态
   useEffect(() => {
       if (!heliusMonitorEnabled) return;
@@ -1236,48 +1241,62 @@ const App = () => {
       return () => clearInterval(interval);
   }, [heliusMonitorEnabled]);
 
-  // 启动 Hook 驱动的自动刷新
+  // 启动 Hook 驱动的自动刷新（统一管理 holders + trades 两个定时器）
   const startHookAutoRefresh = () => {
       const hookEnabled = hookRefreshEnabledRef.current;
       const apiEnabled = apiRefreshEnabledRef.current;
+      const tradesEnabled = activityMonitorEnabledRef.current;
       const sec = autoUpdateSecRef.current || 3;
+      const tradesSec = activityMonitorIntervalRef.current || 3;
 
+      // ── Holders / API 定时器 ──
       if (autoUpdateTimer.current) clearInterval(autoUpdateTimer.current);
-      
-      if (!hookEnabled && !apiEnabled) {
-          if (autoUpdateTimer.current) addLog('状态：自动刷新已停止');
-          autoUpdateTimer.current = null;
-          return;
+      autoUpdateTimer.current = null;
+      if (hookEnabled || apiEnabled) {
+          addLog(`状态：Holders刷新已启动 (${sec}s) Hook:${hookEnabled} API:${apiEnabled}`);
+          autoUpdateTimer.current = setInterval(() => {
+              if (!isStartedRef.current) return;
+              const url = lastHoldersUrlRef.current;
+              if (hookRefreshEnabledRef.current && url) {
+                  runHookRefresh();
+              }
+              if (apiRefreshEnabledRef.current) {
+                  handleFullRefresh(true);
+              }
+          }, sec * 1000);
       }
 
-      addLog(`状态：自动刷新已启动 (${sec}s) Hook:${hookEnabled} API:${apiEnabled}`);
-      
-      autoUpdateTimer.current = setInterval(() => {
-          if (!isStartedRef.current) return; // 未启动跳过
-          const url = lastHoldersUrlRef.current;
-          if (hookRefreshEnabledRef.current && url) {
-              runHookRefresh();
-          }
-          if (apiRefreshEnabledRef.current) {
-              handleFullRefresh(true);
-          }
-      }, sec * 1000);
+      // ── Trades 定时器（只有点击开始后才实际执行）──
+      if (tradesUpdateTimer.current) clearInterval(tradesUpdateTimer.current);
+      tradesUpdateTimer.current = null;
+      if (tradesEnabled) {
+          addLog(`状态：Trades刷新已启动 (${tradesSec}s)`);
+          tradesUpdateTimer.current = setInterval(() => {
+              if (!isStartedRef.current) return; // 未点开始跳过
+              const url = lastTradesUrlRef.current;
+              if (url) runTradesRefresh();
+          }, tradesSec * 1000);
+      }
   };
 
   // 监听配置变化并管理定时器
   useEffect(() => {
-      // 只要任意一个开关开启，就尝试启动（内部会处理重启逻辑）
-      if (hookRefreshEnabled || apiRefreshEnabled) {
+      // 任意一个开关开启，就重新启动（内部会处理清旧建新）
+      if (hookRefreshEnabled || apiRefreshEnabled || activityMonitorEnabled) {
           startHookAutoRefresh();
       } else {
-          // 如果都关闭，且定时器存在，则停止
+          // 全部关闭时停止所有定时器
           if (autoUpdateTimer.current) {
               clearInterval(autoUpdateTimer.current);
               autoUpdateTimer.current = null;
-              addLog('状态：自动刷新已停止');
+          }
+          if (tradesUpdateTimer.current) {
+              clearInterval(tradesUpdateTimer.current);
+              tradesUpdateTimer.current = null;
+              addLog('状态：自动刷新已全部停止');
           }
       }
-  }, [autoUpdateSec, hookRefreshEnabled, apiRefreshEnabled]);
+  }, [autoUpdateSec, hookRefreshEnabled, apiRefreshEnabled, activityMonitorEnabled, activityMonitorInterval]);
 
   // 筛选逻辑 - 后端已经根据 Score< 过滤，前端直接显示所有数据
   const displayItems = useMemo(() => {
