@@ -12,7 +12,7 @@ export default class SignatureManager {
   constructor(mintAddress) {
     this.mint = mintAddress;
 
-    // sig → { slot, blockTime, blockIndex, hasData, isProcessed, sources, txData, createdAt }
+    // sig → { slot, blockTime, blockIndex, hasData, isProcessed, sources, txData, timestamp, insertSeq, primarySource }
     this.signatures = new Map();
 
     // 数据源跟踪
@@ -72,7 +72,6 @@ export default class SignatureManager {
         // 时间戳：优先用 blockTime（秒→毫秒），其次 GMGN timestamp，最后当前时间
         timestamp: blockTime ? blockTime * 1000 : (gmgnData?.timestamp ? gmgnData.timestamp * 1000 : Date.now()),
         txData,
-        createdAt: Date.now(),
         insertSeq: ++this._insertSeq   // 单调递增序号，保证同ms也能区分插入顺序
       });
 
@@ -353,7 +352,7 @@ export default class SignatureManager {
     const now = Date.now();
     let removed = 0;
     for (const [sig, state] of this.signatures.entries()) {
-      if (now - state.createdAt > maxAge) {
+      if (state.timestamp > 0 && now - state.timestamp > maxAge) {
         this.signatures.delete(sig);
         removed++;
       }

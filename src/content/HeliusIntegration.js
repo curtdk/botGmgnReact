@@ -117,18 +117,15 @@ class HeliusIntegration {
    *  - Monitor 初始化解锁信号来自 GMGN_TRADES_LOADED（EXECUTE_TRADES_REFRESH 结尾发送）
    */
   setupHookListeners() {
-    // 监听 GMGN 分页数据加载完成事件（由 EXECUTE_TRADES_REFRESH 结尾触发，解锁 Monitor 初始化）
+    // GMGN 分页数据加载完成事件（由 EXECUTE_TRADES_REFRESH 结尾触发）
+    // 新架构中 Helius 后台任务独立运行，不再需要等待此事件解锁；仅做日志记录
     this.gmgnTradesLoadedHandler = (_event) => {
       if (!this.monitor) return;
-
-      this.sendStatusLog('GMGN 分页数据加载完成，通知 Monitor...');
-      // 通知监控器可以开始批量获取了
-      if (this.monitor.onGmgnDataLoaded) {
-        this.monitor.onGmgnDataLoaded();
-      }
+      const stats = this.monitor.signatureManager.getStats();
+      console.log(`[GMGN] 分页加载完成，SignatureManager sig 总数=${stats.total}`);
+      this.sendStatusLog(`GMGN 分页加载完成，sig 总数=${stats.total}`);
     };
     window.addEventListener('GMGN_TRADES_LOADED', this.gmgnTradesLoadedHandler);
-
   }
 
   /**
@@ -137,24 +134,26 @@ class HeliusIntegration {
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       if (request.type === 'HELIUS_MONITOR_TOGGLE') {
-        const enabled = request.enabled;
-        this.enabled = enabled;
-
-
-        // 通知 monitor 更新开关状态
-        if (this.monitor) {
-          this.monitor.setHeliusApiEnabled(enabled);
-        }
-
+        this.enabled = request.enabled;
+        // 新架构：Helius API 始终启用，toggle 不再影响 heliusApiEnabled
         sendResponse({ success: true });
       }
 
-      // 侧边栏开始：锁定 mint，阻止自动切换
+      // 侧边栏开始：锁定 mint，启动监控
       if (request.type === 'LOCK_MINT') {
         this.lockedMint = request.mint || null;
-        // 若当前监控的 mint 与锁定 mint 不同，先切换过来
+        // 若当前监控的 mint 与锁定 mint 不同，先切换过来（重新创建 monitor 实例）
         if (this.lockedMint && this.currentMint !== this.lockedMint) {
           this.checkAndInitMonitor();
+        }
+        // 用户点击"开始"—— 调用 start() 启动后台初始化任务
+        if (this.monitor) {
+          console.log('[Monitor] 用户点击开始，启动 monitor...');
+          this.monitor.start().catch(err => {
+            if (err.message && err.message.includes('Extension context invalidated')) return;
+            console.error('[Monitor] start() 异常:', err);
+            this.sendStatusLog(`❌ 启动失败: ${err?.message || err}`);
+          });
         }
         sendResponse({ success: true });
         return true;
@@ -282,9 +281,9 @@ class HeliusIntegration {
       this.sendClearMetrics();
     }
 
-    // 启动新的监控器（不检查开关状态，自动启动）
+    // 准备监控器（仅创建实例，等待用户点击"开始"后再调用 start()）
 
-    this.sendStatusLog(`检测到代币 ${mint.slice(0, 8)}...，启动 Helius 监控`);
+    this.sendStatusLog(`检测到代币 ${mint.slice(0, 8)}...，等待开始`);
 
     // 整页加载后首次检测到 mint：通知 SidePanel 重置并更新 pageMint
     // SPA 内导航由 MutationObserver 触发，此时 _isFirstMintDetection 已为 false，不重复通知
@@ -302,8 +301,8 @@ class HeliusIntegration {
     // 注入 API Key
     this.monitor.setApiKey(this.apiKey);
 
-    // 设置 API 开关状态
-    this.monitor.setHeliusApiEnabled(this.enabled);
+    // 新架构：Helius 历史 sig 获取始终启用，不受侧边栏 toggle 影响
+    // toggle 原来只控制 WS，WS 已禁用，此处不再调用 setHeliusApiEnabled
 
     // 设置指标更新回调
     this.monitor.onMetricsUpdate = (metrics) => {
@@ -340,18 +339,7 @@ class HeliusIntegration {
       }
     };
 
-    try {
-      await this.monitor.start();
-      this.isInitialized = true;
-    } catch (error) {
-      // Extension context invalidated 不是真正的启动失败，monitor 仍可继续运行
-      if (error.message && error.message.includes('Extension context invalidated')) {
-        this.isInitialized = true;
-        return;
-      }
-      this.monitor = null;
-      this.currentMint = null;
-    }
+    // 不在此处调用 start()，等待用户点击"开始"按钮（LOCK_MINT 消息）
   }
 
   /**

@@ -1,17 +1,135 @@
-================================================================================
-数据流日志
-导出时间: 2026/3/2 15:37:42
-日志条数: 3
-================================================================================
-
-[1] 15:37:33 [启动] Step 0: 开始
-    mint=HTE4gdjS...
-
-[2] 15:37:33 [启动] Step 1: IndexedDB 初始化
-    正在连接本地缓存...
-
-[3] 15:37:39 [4大参数] 指标计算
-    下注=0.0000 落袋=0.0000 成本=0.0000 浮盈亏=0.0000
-    数据: {
-  "detail": "【本轮下注】0.0000 SOL（0人持仓）\n【已落袋】0.0000 SOL（0轮历史）\n【浮盈浮亏】已落袋(0.0000) + 当前净流水(0.0000) = 0.0000 SOL\n【本轮成本】本轮下注(0.0000) - 已落袋(0.0000) = 0.0000 SOL"
-}
+[Monitor] 用户点击开始，启动 monitor...
+index.jsx.js:2526 [Helius] 启动 mint=2JybSWnc...
+index.jsx.js:2542 [Helius] 手动标记加载完成: 0 条
+index.jsx.js:2559 [Helius] ── Step 1: 获取全部历史 sig ──
+index.jsx.js:2570 [Helius] Step 1 ✓ sig 获取完成: 新增=28 缓存=0 总计=28
+index.jsx.js:2577 [Helius] ── Step 2: 补全 tx 数据 ──
+index.jsx.js:2578 [Helius] Step 2: 共 28 条 sig，GMGN 已覆盖 0 条，剩余 28 条需从 API 获取
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=false loggerOn=true
+index.jsx.js:4354 [GMGN-PROCESSED] 第1页 新增=0条 / 共17条
+index.jsx.js:3310 [GMGN] 分页加载完成，SignatureManager sig 总数=28
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=false loggerOn=true
+index.jsx.js:4354 [GMGN-PROCESSED] 第1页 新增=0条 / 共17条
+index.jsx.js:3310 [GMGN] 分页加载完成，SignatureManager sig 总数=28
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=false loggerOn=true
+index.jsx.js:4354 [GMGN-PROCESSED] 第1页 新增=0条 / 共17条
+index.jsx.js:3310 [GMGN] 分页加载完成，SignatureManager sig 总数=28
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=false loggerOn=true
+index.jsx.js:4354 [GMGN-PROCESSED] 第1页 新增=0条 / 共17条
+index.jsx.js:3310 [GMGN] 分页加载完成，SignatureManager sig 总数=28
+index.jsx.js:2587 [Helius] Step 2 ✓ 全部 tx 补全完成
+index.jsx.js:2590 [Helius] ── Step 3: 首次 4 大参数计算 ──
+index.jsx.js:2594 [Helius] Step 3 ✓ 计算完成，已处理 28 条
+index.jsx.js:2597 [Helius] ✅ 初始化完成，进入实时模式
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=true loggerOn=true
+index.jsx.js:4354 [GMGN-PROCESSED] 第1页 新增=0条 / 共17条
+index.jsx.js:3310 [GMGN] 分页加载完成，SignatureManager sig 总数=28
+index.jsx.js:4344 [GMGN-API-RAW] 第1页 共17条
+  [0] 5K3YAhA8w1fN ts=1772721590 event=buy maker=4L1Nv8M1
+  [1] 5AMRRRUUECvJ ts=1772721539 event=sell maker=FFqhWGJC
+  [2] 4p6SSkrNbwSh ts=1772721510 event=sell maker=EAk1JqDr
+  [3] 5pqYwpAGNrVe ts=1772721508 event=buy maker=EbtsEVuD
+  [4] 2J4A6WPYjhBp ts=1772721495 event=sell maker=GJiNeKtH
+  [5] 2jMEtDwbDHXv ts=1772721374 event=buy maker=C6Yr8J29
+  [6] 4QWtLnMqf4pN ts=1772721359 event=buy maker=B3f6fvkS
+  [7] 3kZtdqNhDrLs ts=1772721354 event=buy maker=6kREUYgg
+  [8] 24NnkLcTihn9 ts=1772721322 event=buy maker=6cr5aNax
+  [9] 3JHVVJyP85fj ts=1772721249 event=sell maker=2Ah16JrM
+  [10] 3KY1D8zU831n ts=1772721241 event=buy maker=Gd7wR8Y9
+  [11] 53sPUBuNsEo5 ts=1772721227 event=buy maker=FFqhWGJC
+  [12] 5ZLhVc4hiEfv ts=1772721197 event=buy maker=EAk1JqDr
+  [13] 39cKAHZAnXzp ts=1772721197 event=buy maker=GJiNeKtH
+  [14] 3r6dG4PjvWXo ts=1772721196 event=buy maker=2Ah16JrM
+  [15] 4xoDGMp5fVoR ts=1772721195 event=buy maker=225mdrgp
+  [16] 5itsVw9YLP1E ts=1772721195 event=launch maker=3fBrbQF3
+index.jsx.js:3569 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=17 monitor=true isInit=true loggerOn=true

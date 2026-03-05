@@ -107,6 +107,27 @@ sortedTrades.sort((a, b) => {
 
 
 
-runTradesRefresh  
+
+
+
+
+  └─ SignatureManager.addSignature(tx_hash, 'plugin', trade)
+    └─ SignatureManager.addSignatureBatch(rawSigs, 'initial')
+      └─ SignatureManager.addSignature(sig, 'websocket')
+
+
+  // ─────────────────────────────────────────────────────────
+  // 首次计算
+  // ─────────────────────────────────────────────────────────
+
+  async performInitialCalculation() {
+
+  /**
+   * 处理新的 GMGN 交易（实时模式）
+   */
+  processNewGmgnTrades(trades) {
+
+
+
 
 

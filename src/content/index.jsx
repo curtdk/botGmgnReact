@@ -794,9 +794,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         nextCursor = json.data?.next || json.next;
                     }
 
-                    // [诊断] 接口原始数据日志
-                    console.log(`[GMGN-API-RAW] 第${pageCount + 1}页 共${trades.length}条\n` +
-                        trades.map((t, i) => `  [${i}] ${t.tx_hash?.slice(0, 12)} ts=${t.timestamp} event=${t.event} maker=${t.maker?.slice(0, 8)}`).join('\n'));
+                    // [诊断] 接口原始数据日志（只打标题，不展开列表）
+                    console.log(`[GMGN-API-RAW] 第${pageCount + 1}页 共${trades.length}条`);
 
                     // 4. 更新数据 - 直接调用 HeliusIntegration，统一走 HeliusMonitor 数据体系
                     let newCount = 0;
