@@ -546,7 +546,16 @@ export default class MetricsEngine {
       this._initTrader(owner);
     }
 
-    const uiAmount = holderData.ui_amount || holderData.amount || 0;
+    const existing = this.traderStats[owner];
+    const newFundingAccount = holderData.native_transfer?.from_address || null;
+
+    // 如果之前是 trade-only 用户（无 has_holder_snapshot），现在首次获得 holder 快照：
+    // 重置 has_hidden_relay，让 detectHiddenRelays 用新的 funding_account 信息重新评估
+    // （trade-only 阶段的检测结果是基于"未知来源"做的，holder 快照可能改变判断依据）
+    if (!existing.has_holder_snapshot && existing.has_hidden_relay !== undefined) {
+      existing.has_hidden_relay = undefined;
+      existing.hidden_relay_conditions = undefined;
+    }
 
     Object.assign(this.traderStats[owner], {
       owner,
@@ -554,7 +563,7 @@ export default class MetricsEngine {
       ui_amount: holderData.ui_amount || holderData.amount,
       holding_share_pct: holderData.holding_share_pct,
       total_buy_u: holderData.total_buy_u,
-      funding_account: holderData.native_transfer?.from_address || null,
+      funding_account: newFundingAccount,
       first_buy_time: holderData.native_transfer?.block_timestamp || null,
       has_holder_snapshot: true,
       last_holder_update: Date.now(),

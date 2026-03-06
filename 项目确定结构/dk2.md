@@ -128,6 +128,14 @@ sortedTrades.sort((a, b) => {
   processNewGmgnTrades(trades) {
 
 
+    ------------------评分
+
+    我需要 在详细的知道系统中 账户评分 和使用 更新的流程体系。 我可以想到的。1. 所有的用户 都归集到了 traderStats   2. EXECUTE_HOLDERS_REFRESH  刷新 holder 获取到新据 就 自动触发 评分  根据 选项处理 自己可以处理的评分 比如无资金来源  然后立即更新 traderStats    用户的分数 。3. 当 EXECUTE_TRADES_REFRESH 刷新 trade  会 完善或建立 自己的 traderStats     并 进行评分 根据自己可以处理 的 并选中的 比如 无资金来源-隐藏中转   。 还是 另一种 体系。 实时交易列表刷新的时候 ，所有用户列表 traderStats   根据自己的信息  逐一 评分 ，没有检测完成的 就在 列表 标签字段 显示 待处理 解决了 马上更新。
+
+
+        我需要 在详细的知道系统中 账户评分 和使用 更新的流程体系。 我可以想到的。1. 所有的用户 都归集到了 traderStats   EXECUTE_HOLDERS_REFRESH  EXECUTE_HOLDERS_REFRESH 跟新信息的时候 丰富 traderStats ， 实时交易列表刷新的时候 ，所有用户列表 traderStats   根据自己的信息  逐一 评分 ，没有检测完成的 就在 列表 标签字段 显示 待处理 解决了 马上更新。
+
+
 
 
 

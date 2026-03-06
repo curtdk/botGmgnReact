@@ -425,6 +425,17 @@ class HeliusIntegration {
     // 更新指标
     const metrics = this.monitor.metricsEngine.getMetrics();
     this.displayMetrics(metrics);
+
+    // 触发评分：检测是否有新的未评分用户
+    if (processedCount > 0) {
+      const hasUnscored = sortedTrades.some(t =>
+        t.maker && this.monitor.metricsEngine.traderStats[t.maker]?.score === undefined
+      );
+      if (hasUnscored) {
+        this.monitor._scheduleQuickScore(); // 快速评分：500ms debounce，BossLogic 同步
+        this.monitor._scheduleSlowScore();  // 慢速评分：3s debounce，含 detectHiddenRelays
+      }
+    }
   }
 
   /**

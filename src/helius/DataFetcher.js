@@ -29,7 +29,7 @@ export default class DataFetcher {
   // ─────────────────────────────────────────────────────────
 
   async call(method, params) {
-    let retries = 3;
+    let retries = 5;
     let delay = 1000;
 
     while (retries > 0) {
@@ -67,7 +67,13 @@ export default class DataFetcher {
         if (retries === 1) {
           throw error;
         }
-        await new Promise(r => setTimeout(r, delay));
+        // 网络层错误（ERR_CONNECTION_CLOSED 等 TypeError）使用更长延迟
+        const isNetworkError = error instanceof TypeError || error.message?.includes('CONNECTION');
+        const waitMs = isNetworkError ? Math.max(delay, 2000) : delay;
+        if (isNetworkError) {
+          console.warn(`[DataFetcher] 网络错误，${waitMs}ms 后重试（剩余${retries - 1}次）: ${error.message}`);
+        }
+        await new Promise(r => setTimeout(r, waitMs));
         delay *= 2;
         retries--;
       }

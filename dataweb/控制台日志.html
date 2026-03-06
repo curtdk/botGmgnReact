@@ -1,16 +1,65 @@
-[GMGN-API-RAW] 第1页 共15条
-  [0] 2kxU4Hh1Aa6k ts=1772691611 event=buy maker=Gd5cvfcc
-  [1] 4Ddb3ieE584U ts=1772691610 event=buy maker=4Fhrk8UF
-  [2] 5E7dPmuFg7Qb ts=1772691607 event=sell maker=5nAD88ex
-  [3] 25ZuY5naQLMx ts=1772691603 event=sell maker=opeNVY6Y
-  [4] UbKsdRVZL56P ts=1772691603 event=sell maker=AJTD831i
-  [5] 3nKykMjRnwJN ts=1772691603 event=sell maker=race6jWf
-  [6] 4aWSq8QYto4Z ts=1772691586 event=sell maker=FDKdqQc5
-  [7] 5EaF5rVjxA4N ts=1772691586 event=buy maker=5nAD88ex
-  [8] 5mMnVm9Uh4r5 ts=1772691584 event=sell maker=Fkemk4DN
-  [9] 5qv2a2r7ST5z ts=1772691583 event=buy maker=Fkemk4DN
-  [10] 5TZuz6fNa7dp ts=1772691583 event=buy maker=AJTD831i
-  [11] 2vhctQzpApj2 ts=1772691583 event=buy maker=race6jWf
-  [12] 3QQj3LrFYAhN ts=1772691583 event=buy maker=FDKdqQc5
-  [13] 236WiXCdH6bN ts=1772691583 event=buy maker=opeNVY6Y
-  [14] 236WiXCdH6bN ts=1772691583 event=launch maker=opeNVY6Y
+index.jsx.js:2174 
+ POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+index.jsx.js:2174 
+ POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+index.jsx.js:3459 [Monitor] 用户点击开始，启动 monitor...
+index.jsx.js:2639 [Helius] 启动 mint=7utkZkGu...
+index.jsx.js:2655 [Helius] 手动标记加载完成: 0 条
+index.jsx.js:2672 [Helius] ── Step 1: 获取全部历史 sig ──
+index.jsx.js:2683 [Helius] Step 1 ✓ sig 获取完成: 新增=0 缓存=0 总计=0
+index.jsx.js:2686 [Helius] ⚠ 未获取到任何 sig，可能是新代币或 API 错误
+index.jsx.js:2689 [Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──
+index.jsx.js:2174 
+ POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+index.jsx.js:4481 [GMGN-API-RAW] 第1页 共7条
+index.jsx.js:3698 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=7 monitor=true isInit=false loggerOn=true
+index.jsx.js:4490 [GMGN-PROCESSED] 第1页 新增=6条 / 共7条
+index.jsx.js:3438 [GMGN] 分页加载完成，SignatureManager sig 总数=6 有数据=undefined
+index.jsx.js:2694 [Helius] ✓ GMGN 数据已就绪，SignatureManager 当前 sig 总数=6 有数据=undefined
+index.jsx.js:2697 [Helius] ── Step 2: 补全 tx 数据 ──
+index.jsx.js:2698 [Helius] Step 2: 共 0 条 sig，GMGN 已覆盖 0 条，剩余 0 条需从 API 获取
+index.jsx.js:2710 [Helius] Step 2 来源统计: GMGN覆盖=6 缓存命中=0 Helius API获取=0 仍缺失=0
+index.jsx.js:2716 [Helius] Step 2 ✓ 全部 tx 补全完成
+index.jsx.js:2719 [Helius] ── Step 3: 首次 4 大参数计算 ──
+index.jsx.js:2037 [4大参数] ═══ 参与计算的全部 trades（共 6 条）═══
+  [1] 2026/3/6 15:11:34 | sig=4YyeLtEo.. | addr=DK8xiZ..twbL | 买入 | SOL=-1.7778 | Token=+60027972
+  [2] 2026/3/6 15:11:34 | sig=22TnFwDr.. | addr=9oXxSR..uhBL | 买入 | SOL=-1.0667 | Token=+32897603
+  [3] 2026/3/6 15:11:34 | sig=4DXhU4AX.. | addr=5c3fHY..HFCs | 买入 | SOL=-1.0074 | Token=+29166329
+  [4] 2026/3/6 15:11:34 | sig=58HkeJ9a.. | addr=8RLouj..xT69 | 买入 | SOL=-0.0148 | Token=+415970
+  [5] 2026/3/6 15:11:42 | sig=2otxV2Qr.. | addr=DK8xiZ..twbL | 卖出 | SOL=+2.0118 | Token=-60027972
+  [6] 2026/3/6 15:11:42 | sig=3a2NdJ6K.. | addr=8RLouj..xT69 | 卖出 | SOL=+0.0131 | Token=-415970
+index.jsx.js:2066 [4大参数] ═══ 各账户状态（共 4 个账户）═══
+  DK8xiZ..twbL  历史1轮 净流水=+0.2340 SOL
+    轮1: buy=1.7778 sell=2.0118 net=+0.2340  当前无持仓
+  9oXxSR..uhBL  历史0轮
+  当前持仓: buy=1.0667 sell=0.0000 净成本=1.0667 SOL txCount=1
+  5c3fHY..HFCs  历史0轮
+  当前持仓: buy=1.0074 sell=0.0000 净成本=1.0074 SOL txCount=1
+  8RLouj..xT69  历史1轮 净流水=-0.0017 SOL
+    轮1: buy=0.0148 sell=0.0131 net=-0.0017  当前无持仓
+index.jsx.js:2111 [4大参数] ═══ 四大参数计算明细 ═══
+【已落袋】= 历史所有轮次净流水之和
+  DK8xiZ..twbL: 历史1轮
+    轮1: buy=1.7778 sell=2.0118 net=+0.2340
+  小计=+0.2340 SOL
+  8RLouj..xT69: 历史1轮
+    轮1: buy=0.0148 sell=0.0131 net=-0.0017
+  小计=-0.0017 SOL
+  → 已落袋 = +0.2323 SOL
+
+【本轮下注】= 当前持仓用户(buy-sell)之和（2人持仓）
+  9oXxSR..uhBL: buy=1.0667 - sell=0.0000 = 净成本1.0667
+  5c3fHY..HFCs: buy=1.0074 - sell=0.0000 = 净成本1.0074
+  → 本轮下注 = 2.0741 SOL
+
+【浮盈浮亏】= 已落袋(0.2323) + 当前净流水(-2.0741) = -1.8418 SOL
+【本轮成本】= 本轮下注(2.0741) - 已落袋(0.2323) = 1.8418 SOL
+index.jsx.js:2723 [Helius] Step 3 ✓ 计算完成，已处理 6 条
+index.jsx.js:2726 [Helius] ✅ 初始化完成，进入实时模式
+index.jsx.js:4481 [GMGN-API-RAW] 第1页 共7条
+index.jsx.js:3698 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=7 monitor=true isInit=true loggerOn=true
+index.jsx.js:4490 [GMGN-PROCESSED] 第1页 新增=0条 / 共7条
+index.jsx.js:3438 [GMGN] 分页加载完成，SignatureManager sig 总数=6 有数据=undefined
+index.jsx.js:4481 [GMGN-API-RAW] 第1页 共7条
+index.jsx.js:3698 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=7 monitor=true isInit=true loggerOn=true
+index.jsx.js:4490 [GMGN-PROCESSED] 第1页 新增=0条 / 共7条

@@ -1,0 +1,36 @@
+一个用户在 traderStats 里的字段长这样（合并了 trade 处理 + holder 快照 + 评分结果）：
+
+
+traderStats['地址AAA'] = {
+  // ── 来自 _initTrader()（trade 处理时自动创建）──
+  netSolSpent: 0,          // 全周期累计净SOL支出（买入减去卖出，可负）
+  netTokenReceived: 0,     // 全周期累计净Token持有量（可负=清仓后）
+  totalBuySol: 0,          // 全周期总买入SOL
+  totalSellSol: 0,         // 全周期总卖出SOL
+
+  // ── v2 轮次追踪 ──
+  completedRounds: [],     // 历史已完结轮次列表 [{buySOL, sellSOL, netFlow, txCount}]
+  totalHistoricalNetFlow: 0, // Σ(历史轮次 sellSOL - buySOL)
+  currentRound: {
+    buySOL: 0,
+    sellSOL: 0,
+    txCount: 0,
+    openTime: null
+  },
+
+  // ── 来自 updateUserInfo()（EXECUTE_HOLDERS_REFRESH 时合并）──
+  owner: '地址AAA',
+  data_source: 'GMGN Holder API',
+  ui_amount: ...,          // 当前持仓Token数量
+  holding_share_pct: ...,  // 持仓占比%
+  total_buy_u: ...,        // GMGN 统计的买入SOL
+  funding_account: ...,    // 资金来源地址（评分关键字段！）
+  first_buy_time: ...,
+  has_holder_snapshot: true,
+  // ...holderData 里的其他所有字段（spread进来的）
+
+  // ── 来自 calculateScores()（评分时写入）──
+  score: 0,               // 庄家倾向分数
+  status: '散户'|'庄家',  // 基于分数和statusThreshold判断
+  score_reasons: []       // 评分原因列表
+}

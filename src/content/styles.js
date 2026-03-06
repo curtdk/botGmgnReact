@@ -49,7 +49,7 @@ export const THEMES = {
     }
 };
 
-export const getStyles = (theme, isOpen, width, listFontSize) => {
+export const getStyles = (theme, isOpen, width, listFontSize, userListHeight = 120) => {
     return {
         container: {
             position: 'fixed',
@@ -162,7 +162,7 @@ export const getStyles = (theme, isOpen, width, listFontSize) => {
         },
         listContent: {
             flex: 1,
-            maxHeight: '120px',
+            maxHeight: `${userListHeight}px`,
             overflowY: 'auto'
         },
         listItem: (isSelected) => ({

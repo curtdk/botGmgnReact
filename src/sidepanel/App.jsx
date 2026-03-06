@@ -202,20 +202,20 @@ const UserListItem = React.memo(({
 });
 
 // 实时交易列表组件
-function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice }) {
+function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice, height = 280 }) {
     // pending 条目：sigFeed 中还没有 tx 数据的 sig（最新到达，尚未被 MetricsEngine 处理）
     const pendingEntries = (sigFeed || []).filter(s => !s.hasData);
 
     if ((!trades || trades.length === 0) && pendingEntries.length === 0) return null;
 
-    // 只显示明确为散户的交易：
-    //  - score === undefined → 身份未知（待评分），不显示
-    //  - score >= minScore   → 庄家，绝不显示
+    // 过滤逻辑：
+    //  - score === undefined → 未评分，默认显示（评分结果还没拿到时不应隐藏）
+    //  - score >= minScore   → 庄家，隐藏（仅当 minScore > 0 时启用此过滤）
     //  - score < minScore    → 散户，显示
-    // minScore === 0 时视为阈值未配置，跳过过滤（显示全部已评分用户）
+    // minScore === 0 时不过滤，显示全部
     const visibleTrades = minScore > 0
-        ? (trades || []).filter(t => t.score !== undefined && t.score < minScore)
-        : (trades || []).filter(t => t.score !== undefined);
+        ? (trades || []).filter(t => t.score === undefined || t.score < minScore)
+        : (trades || []);
 
     const timeAgo = (ts) => {
         const diff = Math.floor((Date.now() - ts) / 1000);
@@ -296,7 +296,7 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                 <span style={{ flex: 1, textAlign: 'right' }}>标签</span>
             </div>
             {/* 交易行 */}
-            <div style={{ height: '350px', overflowY: 'auto', backgroundColor: '#0d1117' }}>
+            <div style={{ height: `${height}px`, overflowY: 'auto', backgroundColor: '#0d1117' }}>
                 {/* Pending 条目：sig 已到达但 tx 数据尚未获取 */}
                 {pendingEntries.map((s) => (
                     <div key={s.sig} style={{
@@ -329,8 +329,8 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                             <span style={{ ...colStyle('56px'), color: '#6b7280' }}>{fmtToken(t.tokenAmount)}</span>
                             <span style={{ ...colStyle('68px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}{flames(t.solAmount)}</span>
                             <span style={{ ...colStyle('36px'), color: '#ffffff', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
-                            <span style={{ flex: 1, textAlign: 'right', color: '#6b7280' }}>
-                                {t.label || '散户'}
+                            <span style={{ flex: 1, textAlign: 'right', color: t.label ? (t.label === '庄家' ? '#ef4444' : '#10b981') : '#4b5563' }}>
+                                {t.label || '待评分'}
                             </span>
                         </div>
                     );
@@ -377,10 +377,12 @@ const App = () => {
   const [visibleColIds, setVisibleColIds] = useState([]);
   const [colWidths, setColWidths] = useState({});
   const [listFontSize, setListFontSize] = useState(13);
+  const [tradeListHeight, setTradeListHeight] = useState(280);
+  const [userListHeight, setUserListHeight] = useState(120);
 
   // 初始化列设置
   useEffect(() => {
-      chrome.storage.local.get(['gmgn_col_visible', 'gmgn_col_widths', 'gmgn_list_font_size'], (res) => {
+      chrome.storage.local.get(['gmgn_col_visible', 'gmgn_col_widths', 'gmgn_list_font_size', 'gmgn_trade_list_height', 'gmgn_user_list_height'], (res) => {
           if (res.gmgn_col_visible) {
               setVisibleColIds(JSON.parse(res.gmgn_col_visible));
           } else {
@@ -388,6 +390,8 @@ const App = () => {
           }
           if (res.gmgn_col_widths) setColWidths(JSON.parse(res.gmgn_col_widths));
           if (res.gmgn_list_font_size) setListFontSize(parseInt(res.gmgn_list_font_size));
+          if (res.gmgn_trade_list_height !== undefined) setTradeListHeight(parseInt(res.gmgn_trade_list_height));
+          if (res.gmgn_user_list_height !== undefined) setUserListHeight(parseInt(res.gmgn_user_list_height));
       });
   }, []);
 
@@ -504,7 +508,7 @@ const App = () => {
   const currentTheme = THEMES[themeMode];
   // Side Panel 不需要 absolute positioning，修改 container 样式
   const styles = useMemo(() => {
-      const s = getStyles(currentTheme, true, width, listFontSize);
+      const s = getStyles(currentTheme, true, width, listFontSize, userListHeight);
       s.container = {
           ...s.container,
           position: 'relative',
@@ -1635,6 +1639,26 @@ const App = () => {
                               </button>
                           </div>
 
+                          {/* 列表高度设置 */}
+                          <div style={{ paddingBottom: '4px', borderBottom: `1px solid ${currentTheme.border}`, marginBottom: '4px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                  <span style={{ fontSize: '11px', color: styles.colors.textSecondary }}>实时交易高度</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <button onClick={() => { const v = Math.max(80, tradeListHeight - 20); setTradeListHeight(v); chrome.storage.local.set({ gmgn_trade_list_height: v }); }} style={styles.smBtn}>-</button>
+                                      <span style={{ fontSize: '11px', color: currentTheme.text, width: '28px', textAlign: 'center' }}>{tradeListHeight}</span>
+                                      <button onClick={() => { const v = tradeListHeight + 20; setTradeListHeight(v); chrome.storage.local.set({ gmgn_trade_list_height: v }); }} style={styles.smBtn}>+</button>
+                                  </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '11px', color: styles.colors.textSecondary }}>用户列表高度</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <button onClick={() => { const v = Math.max(60, userListHeight - 20); setUserListHeight(v); chrome.storage.local.set({ gmgn_user_list_height: v }); }} style={styles.smBtn}>-</button>
+                                      <span style={{ fontSize: '11px', color: currentTheme.text, width: '28px', textAlign: 'center' }}>{userListHeight}</span>
+                                      <button onClick={() => { const v = userListHeight + 20; setUserListHeight(v); chrome.storage.local.set({ gmgn_user_list_height: v }); }} style={styles.smBtn}>+</button>
+                                  </div>
+                              </div>
+                          </div>
+
                           {/* 列设置 */}
                           {COLUMN_DEFS.map(col => (
                               <div key={col.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: currentTheme.inputText }}>
@@ -1663,7 +1687,7 @@ const App = () => {
           </div>
 
           {/* 实时交易列表 */}
-          <RecentTradesList trades={recentTrades} sigFeed={sigFeed} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} />
+          <RecentTradesList trades={recentTrades} sigFeed={sigFeed} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} height={tradeListHeight} />
 
           {/* List Header */}
           <div style={styles.listHeader}>
