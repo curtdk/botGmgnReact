@@ -122,8 +122,10 @@ class HeliusIntegration {
     this.gmgnTradesLoadedHandler = (_event) => {
       if (!this.monitor) return;
       const stats = this.monitor.signatureManager.getStats();
-      console.log(`[GMGN] 分页加载完成，SignatureManager sig 总数=${stats.total}`);
+      console.log(`[GMGN] 分页加载完成，SignatureManager sig 总数=${stats.total} 有数据=${stats.withData}`);
       this.sendStatusLog(`GMGN 分页加载完成，sig 总数=${stats.total}`);
+      // 通知 HeliusMonitor：GMGN 首次分页全部加载完成，Step 2 可以继续
+      this.monitor.notifyGmgnFirstLoad();
     };
     window.addEventListener('GMGN_TRADES_LOADED', this.gmgnTradesLoadedHandler);
   }

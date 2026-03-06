@@ -64,6 +64,12 @@ export default class HeliusMonitor {
 
     // 实时 sig 流（初始化完成后的所有新 sig，含 hasData=false 的待处理条目）
     this.sigFeed = [];
+
+    // GMGN 首次分页加载完成信号（等待 EXECUTE_TRADES_REFRESH 第一轮翻页结束）
+    this._gmgnFirstLoadResolve = null;
+    this._gmgnFirstLoadPromise = new Promise(resolve => {
+      this._gmgnFirstLoadResolve = resolve;
+    });
   }
 
   // ─────────────────────────────────────────────────────────
@@ -74,6 +80,27 @@ export default class HeliusMonitor {
     if (this.onStatusLog) {
       try { this.onStatusLog(`[Helius] ${msg}`); } catch (_e) { /* ignore */ }
     }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // GMGN 首次加载信号
+  // ─────────────────────────────────────────────────────────
+
+  /** HeliusIntegration 收到 GMGN_TRADES_LOADED 后调用此方法 */
+  notifyGmgnFirstLoad() {
+    if (this._gmgnFirstLoadResolve) {
+      this._gmgnFirstLoadResolve();
+      this._gmgnFirstLoadResolve = null; // 只触发一次
+    }
+  }
+
+  /**
+   * 等待 GMGN 首次分页加载完成，超时后自动继续
+   * @param {number} timeoutMs 最长等待毫秒数，默认 60s
+   */
+  async _waitForGmgnFirstLoad(timeoutMs = 60000) {
+    const timeoutPromise = new Promise(resolve => setTimeout(resolve, timeoutMs));
+    await Promise.race([this._gmgnFirstLoadPromise, timeoutPromise]);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -181,6 +208,16 @@ export default class HeliusMonitor {
       console.warn('[Helius] ⚠ 未获取到任何 sig，可能是新代币或 API 错误');
       this._log('⚠ 未获取到任何 sig');
     }
+
+    // ── 等待 GMGN 第一轮翻页完成（EXECUTE_TRADES_REFRESH 全部跑完）──
+    // 目的：确保 GMGN 数据已注入 SignatureManager，Step 2 补全时优先用 GMGN 数据
+    console.log('[Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──');
+    this._log('等待 GMGN 首次数据加载...');
+    await this._waitForGmgnFirstLoad(60000);
+    if (this.isStopped) return;
+    const gmgnStats = this.signatureManager.getStats();
+    console.log(`[Helius] ✓ GMGN 数据已就绪，SignatureManager 当前 sig 总数=${gmgnStats.total} 有数据=${gmgnStats.withData}`);
+    this._log(`GMGN 数据就绪，有数据=${gmgnStats.withData}`);
 
     // ── Step 2: 补全缺失 tx ──
     const missing1 = this.signatureManager.getMissingSignatures();
@@ -402,8 +439,7 @@ export default class HeliusMonitor {
       this.signatureManager.markProcessed(item.sig);
     }
 
-    this.metricsEngine.printMetrics();
-    this.metricsEngine.printDetailedMetrics();
+    this.metricsEngine.printCalculationReport();
 
     this._fireMetricsUpdate();
   }

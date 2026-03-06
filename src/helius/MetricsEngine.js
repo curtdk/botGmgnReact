@@ -437,6 +437,106 @@ export default class MetricsEngine {
   }
 
   // ─────────────────────────────────────────────────────────
+  // 4大参数详细计算报告（console.log）
+  // ─────────────────────────────────────────────────────────
+
+  printCalculationReport() {
+    // ── Part 1：全部参与计算的 trades（按时间顺序从旧到新）──
+    const allTrades = [];
+    for (const [addr, history] of Object.entries(this.traderHistory)) {
+      history.forEach(t => allTrades.push({ ...t, address: addr }));
+    }
+    allTrades.sort((a, b) => a.rawTimestamp - b.rawTimestamp);
+
+    const lines1 = allTrades.map((t, i) => {
+      const addrShort = t.address.slice(0, 6) + '..' + t.address.slice(-4);
+      const solStr = t.solChange >= 0 ? `+${t.solChange.toFixed(4)}` : t.solChange.toFixed(4);
+      const tokenStr = t.tokenChange >= 0 ? `+${Math.abs(t.tokenChange).toFixed(0)}` : `-${Math.abs(t.tokenChange).toFixed(0)}`;
+      return `  [${i + 1}] ${t.timestamp} | sig=${t.signature?.slice(0, 8) || '?'}.. | addr=${addrShort} | ${t.action} | SOL=${solStr} | Token=${tokenStr}`;
+    });
+    console.log(`[4大参数] ═══ 参与计算的全部 trades（共 ${allTrades.length} 条）═══\n${lines1.join('\n')}`);
+
+    // ── Part 2：各账户状态 ──
+    const accountLines = [];
+    for (const [address, stats] of Object.entries(this.traderStats)) {
+      if (this.whaleAddresses.has(address)) continue;
+      const cr = stats.currentRound;
+      const hist = stats.completedRounds || [];
+      const isHolding = cr.buySOL > 0 || cr.txCount > 0;
+      if (!isHolding && hist.length === 0) continue;
+
+      const addrShort = address.slice(0, 6) + '..' + address.slice(-4);
+      let line = `  ${addrShort}  历史${hist.length}轮`;
+      if (hist.length > 0) {
+        const netSign = stats.totalHistoricalNetFlow >= 0 ? '+' : '';
+        line += ` 净流水=${netSign}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`;
+        const roundDetail = hist.map((r, i) =>
+          `    轮${i + 1}: buy=${r.buySOL.toFixed(4)} sell=${r.sellSOL.toFixed(4)} net=${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(4)}`
+        ).join('\n');
+        line += `\n${roundDetail}`;
+      }
+      if (isHolding) {
+        const net = cr.buySOL - cr.sellSOL;
+        line += `\n  当前持仓: buy=${cr.buySOL.toFixed(4)} sell=${cr.sellSOL.toFixed(4)} 净成本=${net.toFixed(4)} SOL txCount=${cr.txCount}`;
+      } else {
+        line += `  当前无持仓`;
+      }
+      accountLines.push(line);
+    }
+    console.log(`[4大参数] ═══ 各账户状态（共 ${accountLines.length} 个账户）═══\n${accountLines.join('\n')}`);
+
+    // ── Part 3：4大参数详细计算 ──
+    let yiLuDai = 0;
+    let benLunXiaZhu = 0;
+    let currentNetFlow = 0;
+    let activeCount = 0;
+    const detailYiLuDai = [];
+    const detailXiaZhu = [];
+
+    for (const [address, stats] of Object.entries(this.traderStats)) {
+      if (this.filteredUsers.size > 0 && !this.filteredUsers.has(address)) continue;
+      if (this.whaleAddresses.has(address)) continue;
+
+      const addrShort = address.slice(0, 6) + '..' + address.slice(-4);
+
+      if (stats.totalHistoricalNetFlow !== 0) {
+        yiLuDai += stats.totalHistoricalNetFlow;
+        const roundLines = stats.completedRounds.map((r, i) =>
+          `    轮${i + 1}: buy=${r.buySOL.toFixed(4)} sell=${r.sellSOL.toFixed(4)} net=${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(4)}`
+        ).join('\n');
+        detailYiLuDai.push(`  ${addrShort}: 历史${stats.completedRounds.length}轮\n${roundLines}\n  小计=${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
+      }
+
+      const round = stats.currentRound;
+      if (round.buySOL > 0 || round.txCount > 0) {
+        const netCost = round.buySOL - round.sellSOL;
+        benLunXiaZhu += netCost;
+        currentNetFlow += round.sellSOL - round.buySOL;
+        activeCount++;
+        detailXiaZhu.push(`  ${addrShort}: buy=${round.buySOL.toFixed(4)} - sell=${round.sellSOL.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
+      }
+    }
+
+    const fuYingFuKui = yiLuDai + currentNetFlow;
+    const benLunChengBen = benLunXiaZhu - yiLuDai;
+
+    const part3Lines = [
+      `[4大参数] ═══ 四大参数计算明细 ═══`,
+      `【已落袋】= 历史所有轮次净流水之和`,
+      ...(detailYiLuDai.length > 0 ? detailYiLuDai : ['  （无）']),
+      `  → 已落袋 = ${yiLuDai >= 0 ? '+' : ''}${yiLuDai.toFixed(4)} SOL`,
+      ``,
+      `【本轮下注】= 当前持仓用户(buy-sell)之和（${activeCount}人持仓）`,
+      ...(detailXiaZhu.length > 0 ? detailXiaZhu : ['  （无）']),
+      `  → 本轮下注 = ${benLunXiaZhu.toFixed(4)} SOL`,
+      ``,
+      `【浮盈浮亏】= 已落袋(${yiLuDai.toFixed(4)}) + 当前净流水(${currentNetFlow.toFixed(4)}) = ${fuYingFuKui >= 0 ? '+' : ''}${fuYingFuKui.toFixed(4)} SOL`,
+      `【本轮成本】= 本轮下注(${benLunXiaZhu.toFixed(4)}) - 已落袋(${yiLuDai.toFixed(4)}) = ${benLunChengBen.toFixed(4)} SOL`,
+    ];
+    console.log(part3Lines.join('\n'));
+  }
+
+  // ─────────────────────────────────────────────────────────
   // Holder 快照 / 评分数据合并
   // ─────────────────────────────────────────────────────────
 
