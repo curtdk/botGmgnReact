@@ -734,6 +734,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         isFetchingTrades = true;
         currentTradesTaskMint = currentMint;
 
+        // 翻页配置（由 App.jsx 传入，带默认值）
+        const maxPages = msg.maxPages || 30;
+        const pageDelay = msg.pageDelay !== undefined ? msg.pageDelay : 1000;
+
         // 辅助函数：睡眠
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -758,15 +762,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         break;
                     }
 
+                    // 记录本次循环使用的 cursor（用于循环检测）
+                    const usedCursor = nextCursor;
+
                     // 1. 构建当前页 URL
                     let currentUrl = baseUrl;
                     if (nextCursor) {
                         // 使用字符串拼接处理相对路径参数
                         const separator = baseUrl.includes('?') ? '&' : '?';
                         currentUrl = `${baseUrl}${separator}cursor=${encodeURIComponent(nextCursor)}`;
-                        
-                        // 暂停 1 秒 (仅在获取下一页前暂停)
-                        await sleep(1000);
+
+                        // 翻页前暂停（可在设置中配置）
+                        await sleep(pageDelay);
                     }
 
 
@@ -792,6 +799,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         trades = json.data?.history || json.data || json;
                         if (!Array.isArray(trades)) trades = [];
                         nextCursor = json.data?.next || json.next;
+                    }
+
+                    // cursor 循环检测：API 返回相同 cursor 说明无法推进，立即跳出
+                    if (nextCursor && nextCursor === usedCursor) {
+                        console.warn(`[GMGN] ⚠ cursor 未推进（循环检测），停止翻页 cursor=${String(nextCursor).slice(0, 30)}`);
+                        nextCursor = null;
+                        break;
                     }
 
                     // [诊断] 接口原始数据日志（只打标题，不展开列表）
@@ -831,6 +845,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     }
 
                     pageCount++;
+
+                    // 最大翻页数限制
+                    if (pageCount >= maxPages) {
+                        console.log(`[GMGN] 已达最大翻页数 ${maxPages}，停止（可在设置中调整）`);
+                        break;
+                    }
 
                     // 6. 判断是否继续
                     // [修改] 智能停止策略：如果发现重复数据（newCount < trades.length），说明接上了历史记录

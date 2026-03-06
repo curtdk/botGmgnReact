@@ -351,7 +351,9 @@ const App = () => {
         'helius_monitor_enabled',
         'data_flow_logger_enabled',
         'score_threshold',
-        'status_threshold'
+        'status_threshold',
+        'gmgn_max_pages',
+        'gmgn_page_delay'
       ], (res) => {
           if (res.gmgn_theme_mode) setThemeMode(res.gmgn_theme_mode);
           if (res.helius_monitor_enabled !== undefined) {
@@ -364,6 +366,8 @@ const App = () => {
           setMinScore(res.score_threshold !== undefined ? res.score_threshold : 100);
           // 统一默认值为 50
           setStatusThreshold(res.status_threshold !== undefined ? res.status_threshold : 50);
+          if (res.gmgn_max_pages !== undefined) setMaxPages(res.gmgn_max_pages);
+          if (res.gmgn_page_delay !== undefined) setPageDelay(res.gmgn_page_delay);
       });
   }, []);
 
@@ -397,6 +401,8 @@ const App = () => {
   const [filterBoss, setFilterBoss] = useState(false);
   const [minScore, setMinScore] = useState(0); // 新增分数筛选状态
   const [statusThreshold, setStatusThreshold] = useState(50); // 状态判断阈值
+  const [maxPages, setMaxPages] = useState(30); // GMGN 最大翻页数
+  const [pageDelay, setPageDelay] = useState(1000); // 翻页间隔 ms
   const [showSettings, setShowSettings] = useState(false);
   const [showBossSettings, setShowBossSettings] = useState(false);
   const [showStrategyModal, setShowStrategyModal] = useState(false);
@@ -914,7 +920,9 @@ const App = () => {
               // addLog('活动刷新: 正在请求...');
               chrome.tabs.sendMessage(tabs[0].id, {
                   type: 'EXECUTE_TRADES_REFRESH',
-                  url: url
+                  url: url,
+                  maxPages: maxPages,
+                  pageDelay: pageDelay
               }, (response) => {
                   if (chrome.runtime.lastError) {
                       // content script 不可达，不计入 URL 失效
@@ -1823,6 +1831,34 @@ const App = () => {
                           启用日志
                       </label>
                   </div>
+                  {/* 翻页设置 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px', marginBottom: '6px', paddingBottom: '6px', borderBottom: `1px solid ${styles.colors.border}` }}>
+                      <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>最大翻页</span>
+                      <input
+                          type="number" min="1" max="500"
+                          value={maxPages}
+                          onChange={e => {
+                              const v = Math.max(1, parseInt(e.target.value) || 1);
+                              setMaxPages(v);
+                              chrome.storage.local.set({ gmgn_max_pages: v });
+                          }}
+                          style={{ ...styles.input, width: '45px' }}
+                          title="每次 GMGN 分页最多翻几页（默认30）"
+                      />
+                      <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>间隔(ms)</span>
+                      <input
+                          type="number" min="0" max="10000"
+                          value={pageDelay}
+                          onChange={e => {
+                              const v = Math.max(0, parseInt(e.target.value) || 0);
+                              setPageDelay(v);
+                              chrome.storage.local.set({ gmgn_page_delay: v });
+                          }}
+                          style={{ ...styles.input, width: '55px' }}
+                          title="每翻一页前暂停的毫秒数（默认1000）"
+                      />
+                  </div>
+
                   <div style={{ display: 'flex', gap: '4px', fontSize: '10px' }}>
                       <button
                           onClick={viewLogs}
