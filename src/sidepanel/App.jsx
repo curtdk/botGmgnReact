@@ -518,7 +518,7 @@ const App = () => {
           boxShadow: 'none'
       };
       return s;
-  }, [themeMode, width, listFontSize]);
+  }, [themeMode, width, listFontSize, userListHeight]);
 
   // 同步 State 到 Ref
   useEffect(() => {
@@ -1595,6 +1595,12 @@ const App = () => {
               </div>
           )}
 
+          {/* 实时交易列表 */}
+          <RecentTradesList trades={recentTrades} sigFeed={sigFeed} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} height={tradeListHeight} />
+
+          {/* 用户列表区（Filter Bar + List Header + List Content）：有实时交易数据后才显示 */}
+          {recentTrades.length > 0 && <>
+
           {/* Filter Bar & Column Settings */}
           <div style={styles.filterBar}>
               {/* 分数筛选下拉框 */}
@@ -1686,9 +1692,6 @@ const App = () => {
               </div>
           </div>
 
-          {/* 实时交易列表 */}
-          <RecentTradesList trades={recentTrades} sigFeed={sigFeed} minScore={minScore} metricsUnit={metricsUnit} solUsdtPrice={solUsdtPrice} height={tradeListHeight} />
-
           {/* List Header */}
           <div style={styles.listHeader}>
               {visibleColIds.map(colId => {
@@ -1759,6 +1762,8 @@ const App = () => {
                   />
               ))}
           </div>
+
+          </>}
 
           {/* Helius 指标 */}
           <div style={{
