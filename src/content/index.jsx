@@ -653,8 +653,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         return true;
     }
+    // [新增] 清空 users 表全部数据（不含手动标记）
+    else if (msg.type === 'DELETE_ALL_USERS') {
+        _statsCm.deleteAllUsers(true).then(deleted => {
+            sendResponse({ success: true, deleted });
+        }).catch(e => {
+            sendResponse({ success: false, error: e.message });
+        });
+        return true;
+    }
     // 必须返回 true 以支持异步 sendResponse (虽然这里是同步的，但保持习惯)
-    return true; 
+    return true;
 });
 
 // -------------------------------------------------------------------------

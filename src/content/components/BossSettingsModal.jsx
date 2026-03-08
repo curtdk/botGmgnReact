@@ -408,6 +408,19 @@ const UserCacheManager = () => {
         setLoading(false);
     };
 
+    const handleClearAll = async () => {
+        if (!window.confirm('确认清空 users 表全部数据？此操作不可恢复')) return;
+        setLoading(true);
+        try {
+            const res = await sendToContentScript({ type: 'DELETE_ALL_USERS' });
+            setMsg(res.success ? `已清空 ${res.deleted} 条` : ('清空失败: ' + (res.error || '')));
+            await loadStats();
+        } catch (e) {
+            setMsg('清空失败: ' + e.message);
+        }
+        setLoading(false);
+    };
+
     useEffect(() => { loadStats(); }, []);
 
     return (
@@ -444,6 +457,9 @@ const UserCacheManager = () => {
                     style={{ width: '40px', background: '#374151', border: 'none', color: '#fff', textAlign: 'center', borderRadius: '2px', padding: '2px', outline: 'none', fontSize: '12px' }} />
                 <span style={{ fontSize: '12px', color: '#9ca3af' }}>的记录</span>
                 <button onClick={handleClearAbove} disabled={loading} style={btnStyle('#1a3a1a')}>清除</button>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
+                <button onClick={handleClearAll} disabled={loading} style={{ ...btnStyle('#7f1d1d'), width: '100%' }}>清空 users 表全部数据</button>
             </div>
             {msg && <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '4px' }}>{msg}</div>}
         </div>

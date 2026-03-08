@@ -620,7 +620,7 @@ export default class CacheManager {
 
     const all = await this.loadAllUsers();
     const toDelete = all.filter(u =>
-      (u.score === undefined || u.score < scoreThreshold) && u.status !== '庄家' && !u.manualScore
+      u.score !== undefined && u.score < scoreThreshold && !u.manualScore
     );
 
     if (toDelete.length === 0) return 0;
@@ -652,6 +652,47 @@ export default class CacheManager {
       u.score !== undefined && u.score >= scoreThreshold && !u.manualScore
     );
 
+    if (toDelete.length === 0) return 0;
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['users'], 'readwrite');
+      const store = tx.objectStore('users');
+      let deleted = 0;
+      tx.oncomplete = () => resolve(deleted);
+      tx.onerror = () => reject(tx.error);
+      toDelete.forEach(u => {
+        const req = store.delete(u.address);
+        req.onsuccess = () => { deleted++; };
+      });
+    });
+  }
+
+  /**
+   * 清空 users 表全部数据（保留 manualScore 记录）
+   * @param {boolean} includeManual - 是否同时删除手动标记记录，默认 false
+   * @returns {number} 删除的记录数
+   */
+  async deleteAllUsers(includeManual = false) {
+    if (this.disabled) return 0;
+    if (!this.db) await this.init();
+
+    if (includeManual) {
+      // 直接 clear 整张表
+      return new Promise((resolve, reject) => {
+        const tx = this.db.transaction(['users'], 'readwrite');
+        const store = tx.objectStore('users');
+        let total = 0;
+        const countReq = store.count();
+        countReq.onsuccess = () => { total = countReq.result; };
+        store.clear();
+        tx.oncomplete = () => resolve(total);
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // 只删除无手动标记的记录
+    const all = await this.loadAllUsers();
+    const toDelete = all.filter(u => !u.manualScore);
     if (toDelete.length === 0) return 0;
 
     return new Promise((resolve, reject) => {
