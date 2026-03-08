@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>隐藏中转诊断 - 单地址</title>
+<style>
+  body { font-family: monospace; background: #111; color: #e5e7eb; padding: 20px; font-size: 13px; }
+  h2 { color: #f59e0b; margin-top: 0; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  input[type=text], input[type=password] { background: #1f2937; border: 1px solid #374151; color: #fff; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+  input[type=text] { width: 480px; }
+  input[type=password] { width: 280px; }
+  button { background: #f59e0b; color: #000; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+  button.sec { background: #374151; color: #e5e7eb; }
+  .sep { border: none; border-top: 1px solid #374151; margin: 12px 0; }
+  #log { background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 12px; font-size: 11px; min-height: 100px; max-height: 700px; overflow-y: auto; white-space: pre-wrap; color: #94a3b8; }
+  .ok { color: #34d399; } .warn { color: #fbbf24; } .err { color: #f87171; }
+  .head { color: #60a5fa; font-weight: bold; } .prog { color: #a78bfa; }
+  .hit { color: #f87171; font-weight: bold; } .miss { color: #6b7280; }
+  .result-yes { background: #7f1d1d; color: #fca5a5; padding: 8px 14px; border-radius: 4px; font-weight: bold; font-size: 14px; display: inline-block; margin: 8px 0; }
+  .result-no  { background: #065f46; color: #6ee7b7; padding: 8px 14px; border-radius: 4px; font-weight: bold; font-size: 14px; display: inline-block; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<h2>隐藏中转诊断 — 单地址完整分析</h2>
+<p style="color:#9ca3af; margin-top:-8px; margin-bottom:14px; font-size:12px;">
+  翻页找最旧 sig → 获取 tx 详情 → 同时检查<strong>外层+内层指令</strong>，对比当前代码（仅外层）
+</p>
+
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">Helius Key</label>
+  <input type="password" id="apiKey" placeholder="your-helius-api-key" />
+</div>
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">地址</label>
+  <input type="text" id="addr" value="58oZgfJcUfT6YFXV9QdGNycjfYuNqkh6QtMnCxUiLetj" />
+</div>
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">最大翻页</label>
+  <input type="text" id="maxPages" value="10" style="width:60px;" />
+  <span style="color:#6b7280; font-size:11px;">（每页1000条，找最旧 sig）</span>
+</div>
+<div class="row" style="margin-top:10px;">
+  <button onclick="run()">▶ 开始诊断</button>
+  <button class="sec" onclick="document.getElementById('log').innerHTML=''">清空</button>
+</div>
+
+<hr class="sep">
+<div id="result-box"></div>
+<div style="font-size:11px; color:#9ca3af; margin-bottom:4px;">详细日志：</div>
+<div id="log"></div>
+
+<script>
+const RPC = () => `https://mainnet.helius-rpc.com/?api-key=${document.getElementById('apiKey').value.trim()}`;
+
+function log(msg, cls='') {
+  const el = document.getElementById('log');
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+function setResult(html) {
+  document.getElementById('result-box').innerHTML = html;
+}
+
+async function rpc(method, params) {
+  const r = await fetch(RPC(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const j = await r.json();
+  if (j.error) throw new Error(`RPC: ${JSON.stringify(j.error)}`);
+  return j.result;
+}
+
+// 当前代码逻辑：只检查外层指令
+function isHiddenRelayTx_CURRENT(tx) {
+  const instructions = tx?.transaction?.message?.instructions;
+  if (!instructions || !Array.isArray(instructions)) return { isRelay: false, conditions: [] };
+  const conditions = [];
+  let hasCreate = false, hasClose = false;
+  for (const ix of instructions) {
+    const prog = ix.program || '';
+    const pType = ix.parsed?.type || '';
+    if (prog === 'spl-associated-token-account') { hasCreate = true; conditions.push('Create'); }
+    if (prog === 'spl-token' && pType === 'closeAccount') { hasClose = true; conditions.push('CloseAccount'); }
+    if (prog === 'system' && pType === 'transfer') conditions.push('Transfer');
+    if (prog === 'spl-token' && pType === 'syncNative') conditions.push('SyncNative');
+  }
+  return { isRelay: hasCreate && hasClose, conditions, source: '外层' };
+}
+
+// 改进逻辑：同时检查内层指令
+function isHiddenRelayTx_IMPROVED(tx) {
+  const outerIxs = tx?.transaction?.message?.instructions || [];
+  const innerGroups = tx?.meta?.innerInstructions || [];
+  const innerIxs = innerGroups.flatMap(g => g.instructions || []);
+  const allIxs = [...outerIxs, ...innerIxs];
+
+  const conditions = [];
+  let hasCreate = false, hasClose = false;
+  for (const ix of allIxs) {
+    const prog = ix.program || '';
+    const pType = ix.parsed?.type || '';
+    if (prog === 'spl-associated-token-account') { hasCreate = true; conditions.push('Create'); }
+    if (prog === 'spl-token' && pType === 'closeAccount') { hasClose = true; conditions.push('CloseAccount'); }
+    if (prog === 'system' && pType === 'transfer') conditions.push('Transfer');
+    if (prog === 'spl-token' && pType === 'syncNative') conditions.push('SyncNative');
+  }
+  return { isRelay: hasCreate && hasClose, conditions, source: '外层+内层' };
+}
+
+async function run() {
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('result-box').innerHTML = '';
+
+  const addr = document.getElementById('addr').value.trim();
+  const maxPages = parseInt(document.getElementById('maxPages').value) || 10;
+  if (!document.getElementById('apiKey').value.trim()) { log('请输入 Helius API Key', 'err'); return; }
+  if (!addr) { log('请输入地址', 'err'); return; }
+
+  log(`[诊断] 地址: ${addr}`, 'head');
+  log(`[诊断] 最大翻页: ${maxPages} 页`);
+  log('');
+
+  // Step 1: 翻页到最旧 sig
+  log('── Step 1: 翻页找最旧 sig ──', 'head');
+  let before = undefined;
+  let pageCount = 0;
+  let lastBatch = [];
+
+  try {
+    for (let i = 0; i < maxPages; i++) {
+      const params = { limit: 1000 };
+      if (before) params.before = before;
+      log(`  第${i+1}页请求中... ${before ? 'before='+before.slice(0,12)+'...' : '(最新)'}`, 'miss');
+      const sigs = await rpc('getSignaturesForAddress', [addr, params]);
+      if (!Array.isArray(sigs) || sigs.length === 0) {
+        log(`  第${i+1}页返回空，结束翻页`, 'warn');
+        break;
+      }
+      log(`  第${i+1}页: ${sigs.length} 条 sig，最旧=${sigs[sigs.length-1].signature.slice(0,16)}...`, 'ok');
+      lastBatch = sigs;
+      pageCount++;
+      if (sigs.length < 1000) {
+        log(`  < 1000条，已到最旧记录`, 'ok');
+        break;
+      }
+      before = sigs[sigs.length - 1].signature;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  } catch (e) {
+    log(`翻页失败: ${e.message}`, 'err');
+    return;
+  }
+
+  if (lastBatch.length === 0) {
+    log('未找到任何 sig，地址可能没有交易记录', 'warn');
+    return;
+  }
+
+  const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
+  const oldestSig = lastBatch[lastBatch.length - 1];
+  log('');
+  log(`── Step 1 结果 ──`, 'head');
+  log(`  总页数: ${pageCount}  总 sig 数: ${totalSigs}`);
+  log(`  最旧 sig: ${oldestSig.signature}`);
+  log(`  最旧 sig slot: ${oldestSig.slot}  blockTime: ${oldestSig.blockTime ? new Date(oldestSig.blockTime*1000).toLocaleString() : 'N/A'}`);
+  log(`  最旧 sig err: ${JSON.stringify(oldestSig.err)}`);
+  log('');
+
+  // Step 2: 获取最旧 tx 详情
+  log('── Step 2: 获取最旧 tx 详情（jsonParsed）──', 'head');
+  let tx;
+  try {
+    tx = await rpc('getTransaction', [oldestSig.signature, {
+      encoding: 'jsonParsed',
+      maxSupportedTransactionVersion: 0
+    }]);
+  } catch (e) {
+    log(`getTransaction 失败: ${e.message}`, 'err');
+    return;
+  }
+
+  if (!tx) {
+    log('tx 为 null（该 sig 可能已被清除或不存在）', 'err');
+    return;
+  }
+
+  // Step 3: 展示所有指令
+  log('');
+  log('── Step 3: 外层指令 (transaction.message.instructions) ──', 'head');
+  const outerIxs = tx?.transaction?.message?.instructions || [];
+  if (outerIxs.length === 0) {
+    log('  无外层指令', 'miss');
+  }
+  outerIxs.forEach((ix, i) => {
+    const prog = ix.program || ix.programId || '?';
+    const pType = ix.parsed?.type || '(unparsed)';
+    const isTarget = (prog === 'spl-associated-token-account') || (prog === 'spl-token' && pType === 'closeAccount');
+    log(`  [${i}] program=${prog}  type=${pType}`, isTarget ? 'hit' : 'miss');
+  });
+
+  log('');
+  log('── Step 4: 内层指令 (meta.innerInstructions) ──', 'head');
+  const innerGroups = tx?.meta?.innerInstructions || [];
+  if (innerGroups.length === 0) {
+    log('  无内层指令', 'miss');
+  }
+  innerGroups.forEach((group, gi) => {
+    log(`  Group[${gi}] index=${group.index}`);
+    (group.instructions || []).forEach((ix, ii) => {
+      const prog = ix.program || ix.programId || '?';
+      const pType = ix.parsed?.type || '(unparsed)';
+      const isTarget = (prog === 'spl-associated-token-account') || (prog === 'spl-token' && pType === 'closeAccount');
+      log(`    [${gi}.${ii}] program=${prog}  type=${pType}`, isTarget ? 'hit' : 'miss');
+    });
+  });
+
+  // Step 5: 对比两种检测结果
+  log('');
+  log('── Step 5: 检测结果对比 ──', 'head');
+  const r1 = isHiddenRelayTx_CURRENT(tx);
+  const r2 = isHiddenRelayTx_IMPROVED(tx);
+
+  log(`  当前代码（仅外层）: isRelay=${r1.isRelay}  conditions=[${r1.conditions.join(',')}]`,
+      r1.isRelay ? 'ok' : 'warn');
+  log(`  改进代码（外层+内层）: isRelay=${r2.isRelay}  conditions=[${r2.conditions.join(',')}]`,
+      r2.isRelay ? 'ok' : 'warn');
+
+  log('');
+  if (!r1.isRelay && r2.isRelay) {
+    log('⚠ 问题确认：当前代码漏检！closeAccount 在内层指令中，需要改进代码', 'warn');
+    setResult('<div class="result-yes">⚠ 漏检：closeAccount 在内层指令 — 需修复 isHiddenRelayTx 以检查内层指令</div>');
+  } else if (r1.isRelay && r2.isRelay) {
+    log('✓ 当前代码可以检测到（外层指令已包含所有条件）', 'ok');
+    setResult('<div class="result-no">✓ 外层检测正常，评分为0可能是 IndexedDB 缓存了旧评分导致跳过</div>');
+  } else if (!r1.isRelay && !r2.isRelay) {
+    log('✗ 两种方法均未检测到 Create+CloseAccount，此 tx 确实不是隐藏中转', 'err');
+    setResult('<div class="result-no">✗ 最旧 tx 不含隐藏中转指令，此账户确实不符合条件</div>');
+    log('  可能原因：账户有 funding_account（有正常资金来源），不走此规则；或第一笔 tx 是普通交易', 'warn');
+  } else {
+    log(`  当前代码检测到但改进未检测（不应出现的情况）`, 'warn');
+  }
+
+  log('');
+  log('── 原始 tx 节选（供手动确认）──', 'head');
+  log(`  fee: ${tx?.meta?.fee}`);
+  log(`  err: ${JSON.stringify(tx?.meta?.err)}`);
+  log(`  logMessages前3行: ${(tx?.meta?.logMessages || []).slice(0, 3).join(' | ')}`);
+}
+</script>
+</body>
+</html>

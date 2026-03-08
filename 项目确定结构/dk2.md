@@ -1,3 +1,5 @@
+python -m http.server 8899
+
 IndexedDB:signatures  transactions 表（Helius 解析的 tx，fetchParsedTxs 自动缓存）
 
 SignatureManager 内存（sig 元数据）

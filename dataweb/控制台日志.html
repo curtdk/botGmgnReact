@@ -1,26 +1,37 @@
-[Monitor] 用户点击开始，启动 monitor...
-index.jsx.js:2744 [Helius] 启动 mint=DbMFyKeS...
-index.jsx.js:2760 [Helius] 手动标记加载完成: 0 条
-index.jsx.js:2777 [Helius] ── Step 1: 获取全部历史 sig ──
-index.jsx.js:2788 [Helius] Step 1 ✓ sig 获取完成: 新增=44 缓存=0 总计=44
-index.jsx.js:2794 [Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──
-gmgn.57f22e4d.js:13 [useBgTrading] [isTradingReady] still false after 5s {
-  "disabled": false,
-  "querySkipped": false,
-  "chain": "SOLANA",
-  "isValidTokenMint": true,
-  "tokenMint": "DbMFyKeSXVubhJcFLJjhpMQqJLmo7iV8AiP9YvSDpump",
-  "solPairInfosLoading": false,
-  "solPairInfosSuccess": true,
-  "solPairInfosError": false,
-  "solPairInfosErrorDetail": null,
-  "bscPairInfosLoading": false,
-  "bscPairInfosSuccess": false,
-  "bscPairInfosError": false,
-  "bscPairInfosErrorDetail": null,
-  "pairInfosRawLength": null,
-  "pairInfosRawFirstMint": null,
-  "hasPairInfo": false,
-  "pairInfoMint": null,
-  "hasCurrentPresetConfig": true
-}
+[Helius] ── Step 1: 获取全部历史 sig ──
+index.jsx.js:2274  POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+call @ index.jsx.js:2274
+fetchSignaturesRaw @ index.jsx.js:2330
+fetchHistorySigsStreaming @ index.jsx.js:2370
+await in fetchHistorySigsStreaming
+_fetchSigsStreaming @ index.jsx.js:2867
+_runHeliusInitTask @ index.jsx.js:2785
+start @ index.jsx.js:2761
+await in start
+（匿名） @ index.jsx.js:3709
+index.jsx.js:2274  POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+call @ index.jsx.js:2274
+await in call
+fetchSignaturesRaw @ index.jsx.js:2330
+fetchHistorySigsStreaming @ index.jsx.js:2370
+await in fetchHistorySigsStreaming
+_fetchSigsStreaming @ index.jsx.js:2867
+_runHeliusInitTask @ index.jsx.js:2785
+start @ index.jsx.js:2761
+await in start
+（匿名） @ index.jsx.js:3709
+index.jsx.js:2274  POST https://mainnet.helius-rpc.com/?api-key= 401 (Unauthorized)
+call @ index.jsx.js:2274
+await in call
+fetchSignaturesRaw @ index.jsx.js:2330
+fetchHistorySigsStreaming @ index.jsx.js:2370
+await in fetchHistorySigsStreaming
+_fetchSigsStreaming @ index.jsx.js:2867
+_runHeliusInitTask @ index.jsx.js:2785
+start @ index.jsx.js:2761
+await in start
+（匿名） @ index.jsx.js:3709
+index.jsx.js:4748 [GMGN-API-RAW] 第1页 共50条
+index.jsx.js:3962 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=50 monitor=true isInit=false loggerOn=true
+index.jsx.js:4757 [GMGN-PROCESSED] 第1页 新增=0条 / 共50条
+index.jsx.js:3687 [GMGN] 分页加载完成，SignatureManager sig 总数=70 有数据=undefined

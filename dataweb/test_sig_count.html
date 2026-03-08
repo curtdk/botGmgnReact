@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Sig 数量诊断 - QSsF5...pump</title>
+<style>
+  body { font-family: monospace; background: #111; color: #e5e7eb; padding: 20px; font-size: 13px; }
+  h2 { color: #f59e0b; margin-top: 0; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  input[type=text], input[type=password] { background: #1f2937; border: 1px solid #374151; color: #fff; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+  input[type=text] { width: 520px; }
+  input[type=password] { width: 280px; }
+  button { background: #f59e0b; color: #000; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
+  button:disabled { background: #374151; color: #9ca3af; cursor: not-allowed; }
+  button.sec { background: #374151; color: #e5e7eb; }
+  .sep { border: none; border-top: 1px solid #374151; margin: 14px 0; }
+  #log { background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 12px; font-size: 11px; min-height: 120px; max-height: 600px; overflow-y: auto; white-space: pre-wrap; color: #94a3b8; }
+  .ok { color: #34d399; }
+  .warn { color: #fbbf24; }
+  .err { color: #f87171; }
+  .head { color: #60a5fa; font-weight: bold; }
+  .stat { display: inline-block; background: #1f2937; border: 1px solid #374151; border-radius: 4px; padding: 4px 12px; margin: 4px 4px 4px 0; font-size: 12px; }
+  .stat span { color: #f59e0b; font-weight: bold; }
+  #stats-box { margin: 10px 0; }
+  .progress { color: #a78bfa; }
+</style>
+</head>
+<body>
+
+<h2>Sig 数量诊断</h2>
+<p style="color:#9ca3af; margin-top: -8px; margin-bottom: 14px; font-size: 12px;">
+  诊断 <strong style="color:#f59e0b;">getSignaturesForAddress</strong> 对目标 mint 返回的 sig 数量，并与 GMGN 日志对比
+</p>
+
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">Helius Key</label>
+  <input type="password" id="apiKey" placeholder="your-helius-api-key" />
+</div>
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">Mint 地址</label>
+  <input type="text" id="mint" value="QSsF56toZUnyZf6EXubnm49ZxMoyXbpa6yugBkhpump" />
+</div>
+<div class="row">
+  <label style="color:#9ca3af; width:80px;">最大翻页</label>
+  <input type="text" id="maxPages" value="20" style="width:60px;" />
+  <span style="color:#6b7280; font-size:11px;">（每页1000条，20页=2万条）</span>
+</div>
+
+<div class="row" style="margin-top:10px;">
+  <button id="btnRun" onclick="runDiag()">▶ 开始诊断</button>
+  <button class="sec" onclick="clearLog()">清空</button>
+  <button class="sec" onclick="testSinglePage()">仅取第1页(快速)</button>
+</div>
+
+<hr class="sep">
+
+<div id="stats-box"></div>
+
+<div style="font-size:11px; color:#9ca3af; margin-bottom:4px;">输出日志：</div>
+<div id="log"></div>
+
+<script>
+const MINT = () => document.getElementById('mint').value.trim();
+const API_KEY = () => document.getElementById('apiKey').value.trim();
+const MAX_PAGES = () => parseInt(document.getElementById('maxPages').value) || 20;
+
+function log(msg, cls = '') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('stats-box').innerHTML = '';
+}
+
+function setStats(data) {
+  const box = document.getElementById('stats-box');
+  box.innerHTML = Object.entries(data).map(([k, v]) =>
+    `<div class="stat">${k}: <span>${v}</span></div>`
+  ).join('');
+}
+
+async function rpcCall(method, params, apiKey) {
+  const url = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+  const json = await resp.json();
+  if (json.error) throw new Error(`RPC error: ${JSON.stringify(json.error)}`);
+  return json.result;
+}
+
+async function testSinglePage() {
+  clearLog();
+  const key = API_KEY();
+  const mint = MINT();
+  if (!key) { log('请输入 Helius API Key', 'err'); return; }
+  if (!mint) { log('请输入 Mint 地址', 'err'); return; }
+
+  log(`[单页测试] mint=${mint}`, 'head');
+  log(`[单页测试] 请求第1页 (limit=1000)...`, 'progress');
+
+  try {
+    const t0 = Date.now();
+    const result = await rpcCall('getSignaturesForAddress', [mint, { limit: 1000 }], key);
+    const elapsed = Date.now() - t0;
+
+    if (!Array.isArray(result)) {
+      log(`返回结构异常: ${JSON.stringify(result).slice(0, 200)}`, 'err');
+      return;
+    }
+
+    const total = result.length;
+    const failed = result.filter(s => s.err).length;
+    const success = total - failed;
+    const newest = result[0];
+    const oldest = result[result.length - 1];
+
+    log(`第1页结果: 共${total}条 (成功=${success} 失败=${failed}) 耗时=${elapsed}ms`, 'ok');
+    if (newest) log(`  最新 sig: ${newest.signature}  slot=${newest.slot}  blockTime=${newest.blockTime ? new Date(newest.blockTime*1000).toLocaleString() : 'N/A'}`, 'ok');
+    if (oldest) log(`  最旧 sig: ${oldest.signature}  slot=${oldest.slot}  blockTime=${oldest.blockTime ? new Date(oldest.blockTime*1000).toLocaleString() : 'N/A'}`, 'ok');
+
+    if (total === 1000) {
+      log(`  ⚠ 返回满页(1000)，说明还有更多历史，实际 sig 总量 >> 1000`, 'warn');
+      log(`  → 这是为什么翻页很慢或 Helius 调用量大的原因`, 'warn');
+    } else {
+      log(`  返回不满1000条，此 mint 历史 sig 总量 ≈ ${total}`, 'ok');
+    }
+
+    setStats({ '第1页 sig 总数': total, '成功': success, '失败': failed, '耗时(ms)': elapsed, '是否满页': total === 1000 ? '是(还有更多)' : '否' });
+
+  } catch (e) {
+    log(`请求失败: ${e.message}`, 'err');
+  }
+}
+
+async function runDiag() {
+  clearLog();
+  const key = API_KEY();
+  const mint = MINT();
+  const maxPages = MAX_PAGES();
+  if (!key) { log('请输入 Helius API Key', 'err'); return; }
+  if (!mint) { log('请输入 Mint 地址', 'err'); return; }
+
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.textContent = '运行中...';
+
+  log(`[诊断开始] mint=${mint}`, 'head');
+  log(`[诊断开始] 最大翻页=${maxPages}，每页1000条`, 'head');
+  log('');
+
+  let before = null;
+  let pageIndex = 0;
+  let totalSigs = 0;
+  let totalFailed = 0;
+  let totalSuccess = 0;
+  let firstSig = null;
+  let lastSig = null;
+  let firstBlockTime = null;
+  let lastBlockTime = null;
+
+  try {
+    while (pageIndex < maxPages) {
+      const params = { limit: 1000 };
+      if (before) params.before = before;
+
+      log(`[第${pageIndex + 1}页] 请求中... ${before ? 'before=' + before.slice(0,12) + '...' : '(最新)'}`, 'progress');
+
+      const t0 = Date.now();
+      const result = await rpcCall('getSignaturesForAddress', [mint, params], key);
+      const elapsed = Date.now() - t0;
+
+      if (!Array.isArray(result) || result.length === 0) {
+        log(`[第${pageIndex + 1}页] 返回空或异常，翻页结束`, 'warn');
+        break;
+      }
+
+      const pageFailed = result.filter(s => s.err).length;
+      const pageSuccess = result.length - pageFailed;
+      totalSigs += result.length;
+      totalFailed += pageFailed;
+      totalSuccess += pageSuccess;
+
+      if (pageIndex === 0) {
+        firstSig = result[0];
+        firstBlockTime = result[0]?.blockTime;
+      }
+      lastSig = result[result.length - 1];
+      lastBlockTime = result[result.length - 1]?.blockTime;
+
+      log(`[第${pageIndex + 1}页] 返回${result.length}条 (成功=${pageSuccess} 失败=${pageFailed}) 耗时=${elapsed}ms`, 'ok');
+
+      pageIndex++;
+
+      if (result.length < 1000) {
+        log(`[第${pageIndex}页] 不满1000条，已到达最旧记录，翻页结束`, 'ok');
+        break;
+      }
+
+      before = result[result.length - 1].signature;
+
+      // 防止过快请求限流
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    if (pageIndex >= maxPages) {
+      log(`\n⚠ 已达到最大翻页数 ${maxPages}，实际 sig 总量可能更多`, 'warn');
+    }
+
+    log('');
+    log('═══════════════════════════════', 'head');
+    log(`[汇总] 已翻 ${pageIndex} 页`, 'head');
+    log(`[汇总] sig 总计: ${totalSigs}  (成功=${totalSuccess} 失败=${totalFailed})`, 'ok');
+    if (firstSig) log(`[汇总] 最新 sig: ${firstSig.signature}  ${firstBlockTime ? new Date(firstBlockTime*1000).toLocaleString() : ''}`, 'ok');
+    if (lastSig)  log(`[汇总] 最旧 sig: ${lastSig.signature}  ${lastBlockTime ? new Date(lastBlockTime*1000).toLocaleString() : ''}`, 'ok');
+    log('');
+    log('[对比] 控制台日志: sig总数=70，GMGN第1页50条，新增=0条', 'warn');
+    log(`[对比] Helius 实际可拉取 sig 数量: ${totalSigs}${pageIndex >= maxPages ? '+(更多)' : ''}`, 'warn');
+    log('');
+    if (totalSigs > 500) {
+      log(`[结论] ⚠ 此 mint 历史 sig 非常多 (${totalSigs}+)，Helius 完整拉取耗时长且消耗 API 配额大`, 'warn');
+    }
+    log('[结论] 新增=0 原因：70条 WebSocket sig 已提前注册，GMGN 第1页50条全部重复', 'ok');
+    log('[结论] 有数据=undefined 原因：日志使用了 stats.withData，但 getStats() 返回字段是 hasData（代码拼写错误）', 'ok');
+    log('[结论] 401 Unauthorized 原因：Helius API Key 为空（插件未配置），与此 mint 无关', 'ok');
+
+    setStats({
+      '翻页数': pageIndex,
+      'sig总计': totalSigs,
+      '成功sig': totalSuccess,
+      '失败sig': totalFailed,
+      '是否到底': pageIndex < maxPages ? '是' : `否(≥${maxPages}页)`
+    });
+
+  } catch (e) {
+    log(`\n请求出错: ${e.message}`, 'err');
+    if (e.message.includes('401')) {
+      log('→ API Key 无效或未填写', 'err');
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ 开始诊断';
+}
+</script>
+</body>
+</html>

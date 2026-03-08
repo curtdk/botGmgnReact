@@ -111,7 +111,7 @@ export default class HeliusMonitor {
   _addSigToFeed(sig, source) {
     if (this.sigFeed.some(e => e.sig === sig)) return;
     this.sigFeed.unshift({ sig, source, hasData: false, action: null, address: null, solAmount: null, tokenAmount: null, rawTimestamp: Date.now(), label: null });
-    if (this.sigFeed.length > 150) this.sigFeed.length = 150;
+    if (this.sigFeed.length > 20000) this.sigFeed.length = 20000;
   }
 
   /** 处理完成后用 MetricsEngine recentTrades[0] 更新 feed 条目 */

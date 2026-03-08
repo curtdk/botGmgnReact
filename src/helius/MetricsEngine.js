@@ -382,7 +382,7 @@ export default class MetricsEngine {
       exitedCount: exitedRoundsCount,
       totalProcessed: this.processedCount,
       skippedWhaleCount: this.skippedWhaleCount,
-      recentTrades: this.recentTrades.slice(0, 150).map(t => ({
+      recentTrades: this.recentTrades.slice(0, 20000).map(t => ({
         ...t,
         score: this.traderStats[t.address]?.score,
         label: this.traderStats[t.address]?.status || null  // 实时刷新 label，反映最新评分结果

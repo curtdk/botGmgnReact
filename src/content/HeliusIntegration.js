@@ -48,47 +48,47 @@ class HeliusIntegration {
    * 初始化
    */
   async init() {
-    // 从 storage 加载开关状态和配置
-    chrome.storage.local.get([
-      'helius_monitor_enabled',
-      'boss_config',
-      'score_threshold',
-      'status_threshold',
-      'helius_api_key',
-    ], (res) => {
-      this.enabled = res.helius_monitor_enabled || false;
-      this.apiKey = res.helius_api_key || '';
-
-      // 合并配置:使用默认配置作为基础,然后覆盖用户配置
-      const defaultConfig = this.getDefaultConfig();
-      this.bossConfig = {
-        ...defaultConfig,
-        ...(res.boss_config || {})
-      };
-
-      // 深度合并对象类型的规则配置
-      ['rule_gas', 'rule_amount_sim', 'rule_large_holding', 'rule_sol_balance', 'rule_source_time'].forEach(key => {
-        if (res.boss_config && res.boss_config[key]) {
-          this.bossConfig[key] = { ...defaultConfig[key], ...res.boss_config[key] };
-        }
-      });
-
-      // 如果 Chrome Storage 中没有配置,保存默认配置
-      if (!res.boss_config) {
-        chrome.storage.local.set({ boss_config: defaultConfig });
-      }
-
-      // 统一默认值,明确检查 undefined
-      this.scoreThreshold = res.score_threshold !== undefined ? res.score_threshold : 100;
-      this.statusThreshold = res.status_threshold !== undefined ? res.status_threshold : 50;
-
-
+    // 用 Promise 包装，确保 storage 读完后再继续（避免 apiKey 竞态）
+    const res = await new Promise(resolve => {
+      chrome.storage.local.get([
+        'helius_monitor_enabled',
+        'boss_config',
+        'score_threshold',
+        'status_threshold',
+        'helius_api_key',
+      ], resolve);
     });
+
+    this.enabled = res.helius_monitor_enabled || false;
+    this.apiKey = res.helius_api_key || '';
+
+    // 合并配置:使用默认配置作为基础,然后覆盖用户配置
+    const defaultConfig = this.getDefaultConfig();
+    this.bossConfig = {
+      ...defaultConfig,
+      ...(res.boss_config || {})
+    };
+
+    // 深度合并对象类型的规则配置
+    ['rule_gas', 'rule_amount_sim', 'rule_large_holding', 'rule_sol_balance', 'rule_source_time'].forEach(key => {
+      if (res.boss_config && res.boss_config[key]) {
+        this.bossConfig[key] = { ...defaultConfig[key], ...res.boss_config[key] };
+      }
+    });
+
+    // 如果 Chrome Storage 中没有配置,保存默认配置
+    if (!res.boss_config) {
+      chrome.storage.local.set({ boss_config: defaultConfig });
+    }
+
+    // 统一默认值,明确检查 undefined
+    this.scoreThreshold = res.score_threshold !== undefined ? res.score_threshold : 100;
+    this.statusThreshold = res.status_threshold !== undefined ? res.status_threshold : 50;
 
     // 监听 hook 事件
     this.setupHookListeners();
 
-    // 检测页面变化
+    // 检测页面变化（在 apiKey 已就绪后再执行）
     this.observePageChanges();
 
     // 监听开关消息
@@ -96,7 +96,6 @@ class HeliusIntegration {
 
     // 监听配置变化
     this.setupConfigListener();
-
   }
 
   /**
