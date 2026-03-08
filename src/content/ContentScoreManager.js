@@ -57,7 +57,7 @@ export default class ContentScoreManager {
         try {
             // 1. 初始加载
             const res = await chrome.storage.local.get([
-                'boss_config', 'holder_status', 'gmgn_short_map',
+                'boss_config', 'gmgn_short_map',
                 'mode_holder_list', 'mode_boss_refresh', 'mode_update_current', 'hook_refresh_enabled'
             ]);
             
@@ -73,7 +73,6 @@ export default class ContentScoreManager {
                 });
             }
 
-            if (res.holder_status) this.statusMap = res.holder_status;
             if (res.gmgn_short_map) this.shortAddressMap = res.gmgn_short_map;
             
             // 加载模式配置 (兼容逻辑：如果开启了Hook但没有mode配置，默认开启列表模式)
@@ -97,9 +96,6 @@ export default class ContentScoreManager {
                                 this.bossConfig[key] = { ...(current[key] || {}), ...newConfig[key] };
                             }
                         });
-                    }
-                    if (changes.holder_status) {
-                        this.statusMap = changes.holder_status.newValue || {};
                     }
                     if (changes.gmgn_short_map) {
                         this.shortAddressMap = changes.gmgn_short_map.newValue || {};
@@ -207,17 +203,10 @@ export default class ContentScoreManager {
     }
 
     /**
-     * 安全保存状态到 Storage (读取-合并-写入)
+     * 安全保存状态到 Storage（已迁移至 IndexedDB，保留空方法兼容旧调用）
      */
     async saveStatus() {
-        try {
-            const res = await chrome.storage.local.get('holder_status');
-            const current = res.holder_status || {};
-            // 合并当前内存中的状态到存储中
-            const merged = { ...current, ...this.statusMap };
-            await chrome.storage.local.set({ holder_status: merged });
-        } catch (e) {
-        }
+        // 状态持久化已由 HeliusIntegration → IndexedDB 负责
     }
 
     /**

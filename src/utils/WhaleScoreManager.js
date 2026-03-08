@@ -21,10 +21,7 @@ export default class WhaleScoreManager {
 
     async init() {
         try {
-            const res = await chrome.storage.local.get(['holder_status', 'gmgn_short_map', 'boss_config']);
-            if (res.holder_status && typeof res.holder_status === 'object') {
-                this.statusMap = res.holder_status;
-            }
+            const res = await chrome.storage.local.get(['gmgn_short_map', 'boss_config']);
             if (res.gmgn_short_map && typeof res.gmgn_short_map === 'object') {
                 this.shortAddressMap = res.gmgn_short_map;
             }
@@ -36,12 +33,7 @@ export default class WhaleScoreManager {
     }
 
     saveStatusMap() {
-        try {
-            chrome.storage.local.set({ holder_status: this.statusMap });
-        } catch (e) {
-            if (!e.message.includes('Extension context invalidated')) {
-            }
-        }
+        // 用户状态持久化已迁移至 IndexedDB，不再写入 chrome.storage
     }
 
     saveShortAddressMap() {

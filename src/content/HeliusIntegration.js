@@ -48,9 +48,6 @@ class HeliusIntegration {
    * 初始化
    */
   async init() {
-    // 获取当前 mint 地址
-    const currentMint = getMintFromPage();
-
     // 从 storage 加载开关状态和配置
     chrome.storage.local.get([
       'helius_monitor_enabled',
@@ -58,7 +55,6 @@ class HeliusIntegration {
       'score_threshold',
       'status_threshold',
       'helius_api_key',
-      `manual_scores_${currentMint}` // 加载手动标记数据
     ], (res) => {
       this.enabled = res.helius_monitor_enabled || false;
       this.apiKey = res.helius_api_key || '';
@@ -85,9 +81,6 @@ class HeliusIntegration {
       // 统一默认值,明确检查 undefined
       this.scoreThreshold = res.score_threshold !== undefined ? res.score_threshold : 100;
       this.statusThreshold = res.status_threshold !== undefined ? res.status_threshold : 50;
-
-      // 加载手动标记数据
-      this.manualStatusMap = res[`manual_scores_${currentMint}`] || {};
 
 
     });
@@ -691,27 +684,12 @@ class HeliusIntegration {
       this.manualStatusMap[address] = status;
     }
 
-    // 持久化到 Chrome storage
-    chrome.storage.local.set({
-      [`manual_scores_${this.currentMint}`]: this.manualStatusMap
-    });
-
     // 如果 monitor 存在，设置手动标记并触发重新评分
     if (this.monitor) {
       this.monitor.setManualScore(address, status);
 
       // 重新发送数据给 UI
       this.sendDataToSidepanel();
-    }
-  }
-
-  /**
-   * 保存状态到 storage
-   */
-  async saveStatus() {
-    try {
-      await chrome.storage.local.set({ holder_status: this.statusMap });
-    } catch (err) {
     }
   }
 

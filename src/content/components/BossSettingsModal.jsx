@@ -292,7 +292,7 @@ const BossSettingsModal = ({ onClose, onAnalyze }) => {
                 </div>
 
                 {/* 庄家档案库管理 */}
-                <BossProfileManager />
+                <UserCacheManager />
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #374151' }}>
                     <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #4b5563', color: '#e5e7eb', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>取消</button>
@@ -333,78 +333,117 @@ const Card = ({ children, title, checked, onCheck, weight, onWeightChange }) => 
 
 const btnStyle = (bg) => ({ background: bg, border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' });
 
-const BossProfileManager = () => {
-    const [count, setCount] = useState(0);
+// 用户评分缓存管理（IndexedDB users 表）
+const UserCacheManager = () => {
+    const [stats, setStats] = useState(null); // { total, byStatus, byScore }
+    const [clearThreshold, setClearThreshold] = useState(60);
+    const [clearAboveThreshold, setClearAboveThreshold] = useState(60);
+    const [loading, setLoading] = useState(false);
+    const [msg, setMsg] = useState('');
 
-    const loadCount = () => {
-        chrome.storage.local.get(null, (all) => {
-            const keys = Object.keys(all).filter(k => k.startsWith('hidden_relay_'));
-            setCount(keys.length);
-        });
+    const getCacheManager = () => window.__heliusIntegration?.monitor?.cacheManager;
+
+    const loadStats = async () => {
+        setLoading(true);
+        try {
+            const cm = getCacheManager();
+            if (!cm) { setMsg('未连接（请先点击开始）'); setLoading(false); return; }
+            const all = await cm.loadAllUsers();
+            const byStatus = {};
+            const byScore = { '未评分': 0, '0-9': 0, '10-29': 0, '30-49': 0, '50-69': 0, '70+': 0 };
+            all.forEach(u => {
+                byStatus[u.status || '未知'] = (byStatus[u.status || '未知'] || 0) + 1;
+                const s = u.score;
+                if (s === undefined || s === null) byScore['未评分']++;
+                else if (s < 10) byScore['0-9']++;
+                else if (s < 30) byScore['10-29']++;
+                else if (s < 50) byScore['30-49']++;
+                else if (s < 70) byScore['50-69']++;
+                else byScore['70+']++;
+            });
+            setStats({ total: all.length, byStatus, byScore });
+            setMsg('');
+        } catch (e) {
+            setMsg('加载失败: ' + e.message);
+        }
+        setLoading(false);
     };
 
-    useEffect(() => { loadCount(); }, []);
-
-    const handleExport = () => {
-        chrome.storage.local.get(null, (all) => {
-            const data = {};
-            Object.keys(all).filter(k => k.startsWith('hidden_relay_')).forEach(k => { data[k] = all[k]; });
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `hidden_relay_cache_${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-        });
+    const handleClearBelow = async () => {
+        const t = parseInt(clearThreshold);
+        if (isNaN(t) || t <= 0) return;
+        if (!window.confirm(`确认删除 score < ${t} 的散户缓存记录？此操作不可恢复`)) return;
+        setLoading(true);
+        try {
+            const cm = getCacheManager();
+            if (!cm) { setMsg('未连接'); setLoading(false); return; }
+            const deleted = await cm.deleteUsersBelow(t);
+            setMsg(`已删除 ${deleted} 条`);
+            await loadStats();
+        } catch (e) {
+            setMsg('删除失败: ' + e.message);
+        }
+        setLoading(false);
     };
 
-    const handleImport = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                try {
-                    const imported = JSON.parse(ev.target.result);
-                    const toSet = {};
-                    Object.keys(imported).filter(k => k.startsWith('hidden_relay_')).forEach(k => { toSet[k] = imported[k]; });
-                    chrome.storage.local.set(toSet, () => {
-                        loadCount();
-                        alert(`导入成功：共 ${Object.keys(toSet).length} 条缓存`);
-                    });
-                } catch (err) {
-                    alert('导入失败：JSON 格式错误');
-                }
-            };
-            reader.readAsText(file);
-        };
-        input.click();
+    const handleClearAbove = async () => {
+        const t = parseInt(clearAboveThreshold);
+        if (isNaN(t) || t < 0) return;
+        if (!window.confirm(`确认删除 score ≥ ${t} 的缓存记录（不含手动标记）？此操作不可恢复`)) return;
+        setLoading(true);
+        try {
+            const cm = getCacheManager();
+            if (!cm) { setMsg('未连接'); setLoading(false); return; }
+            const deleted = await cm.deleteUsersAbove(t);
+            setMsg(`已删除 ${deleted} 条`);
+            await loadStats();
+        } catch (e) {
+            setMsg('删除失败: ' + e.message);
+        }
+        setLoading(false);
     };
 
-    const handleClear = () => {
-        if (!window.confirm(`确认清空全部 ${count} 条隐藏中转缓存？此操作不可恢复`)) return;
-        chrome.storage.local.get(null, (all) => {
-            const keys = Object.keys(all).filter(k => k.startsWith('hidden_relay_'));
-            chrome.storage.local.remove(keys, () => setCount(0));
-        });
-    };
+    useEffect(() => { loadStats(); }, []);
 
     return (
         <div style={{ borderTop: '1px solid #374151', paddingTop: '10px', marginTop: '10px' }}>
-            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>
-                隐藏中转缓存：<span style={{ color: '#f59e0b' }}>{count}</span> 条记录
+            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>用户缓存（IndexedDB）：{stats ? <span style={{ color: '#f59e0b' }}>{stats.total}</span> : '—'} 条</span>
+                <button onClick={loadStats} disabled={loading} style={btnStyle('#374151')}>{loading ? '...' : '刷新'}</button>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-                <button onClick={handleExport} style={btnStyle('#1d4ed8')}>导出</button>
-                <button onClick={handleImport} style={btnStyle('#065f46')}>导入</button>
-                <button onClick={handleClear} style={btnStyle('#7f1d1d')}>清空</button>
+            {stats && (
+                <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '6px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <span>散户: <span style={{ color: '#9ca3af' }}>{stats.byStatus['散户'] || 0}</span></span>
+                    <span>庄家: <span style={{ color: '#ef4444' }}>{stats.byStatus['庄家'] || 0}</span></span>
+                    <span>正在评分: <span style={{ color: '#f59e0b' }}>{stats.byStatus['正在评分'] || 0}</span></span>
+                    <span>未知: <span style={{ color: '#6b7280' }}>{stats.byStatus['未知'] || 0}</span></span>
+                </div>
+            )}
+            {stats && (
+                <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {Object.entries(stats.byScore).map(([k, v]) => (
+                        <span key={k}>{k}分: <span style={{ color: '#d1d5db' }}>{v}</span></span>
+                    ))}
+                </div>
+            )}
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#9ca3af' }}>清除score&lt;</span>
+                <input type="number" value={clearThreshold} onChange={e => setClearThreshold(e.target.value)}
+                    style={{ width: '40px', background: '#374151', border: 'none', color: '#fff', textAlign: 'center', borderRadius: '2px', padding: '2px', outline: 'none', fontSize: '12px' }} />
+                <span style={{ fontSize: '12px', color: '#9ca3af' }}>的记录</span>
+                <button onClick={handleClearBelow} disabled={loading} style={btnStyle('#7f1d1d')}>清除</button>
             </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
+                <span style={{ fontSize: '12px', color: '#9ca3af' }}>清除score≥</span>
+                <input type="number" value={clearAboveThreshold} onChange={e => setClearAboveThreshold(e.target.value)}
+                    style={{ width: '40px', background: '#374151', border: 'none', color: '#fff', textAlign: 'center', borderRadius: '2px', padding: '2px', outline: 'none', fontSize: '12px' }} />
+                <span style={{ fontSize: '12px', color: '#9ca3af' }}>的记录</span>
+                <button onClick={handleClearAbove} disabled={loading} style={btnStyle('#1a3a1a')}>清除</button>
+            </div>
+            {msg && <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '4px' }}>{msg}</div>}
         </div>
     );
 };
+
 
 export default BossSettingsModal;

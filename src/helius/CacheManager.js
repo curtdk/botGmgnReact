@@ -592,6 +592,81 @@ export default class CacheManager {
   // 清理 / 关闭
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 加载所有用户记录（全库，不按 mint 过滤）
+   * @returns {Array} 所有 user 记录
+   */
+  async loadAllUsers() {
+    if (this.disabled) return [];
+    if (!this.db) await this.init();
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['users'], 'readonly');
+      const store = tx.objectStore('users');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 删除分数低于阈值且状态不是'庄家'的用户（清除散户缓存）
+   * @param {number} scoreThreshold - 分数阈值，小于此值的散户记录将被删除
+   * @returns {number} 删除的记录数
+   */
+  async deleteUsersBelow(scoreThreshold) {
+    if (this.disabled) return 0;
+    if (!this.db) await this.init();
+
+    const all = await this.loadAllUsers();
+    const toDelete = all.filter(u =>
+      (u.score === undefined || u.score < scoreThreshold) && u.status !== '庄家' && !u.manualScore
+    );
+
+    if (toDelete.length === 0) return 0;
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['users'], 'readwrite');
+      const store = tx.objectStore('users');
+      let deleted = 0;
+      tx.oncomplete = () => resolve(deleted);
+      tx.onerror = () => reject(tx.error);
+      toDelete.forEach(u => {
+        const req = store.delete(u.address);
+        req.onsuccess = () => { deleted++; };
+      });
+    });
+  }
+
+  /**
+   * 删除分数高于等于阈值且无手动标记的用户记录
+   * @param {number} scoreThreshold - 分数阈值，大于等于此值的记录将被删除（不含 manualScore 记录）
+   * @returns {number} 删除的记录数
+   */
+  async deleteUsersAbove(scoreThreshold) {
+    if (this.disabled) return 0;
+    if (!this.db) await this.init();
+
+    const all = await this.loadAllUsers();
+    const toDelete = all.filter(u =>
+      u.score !== undefined && u.score >= scoreThreshold && !u.manualScore
+    );
+
+    if (toDelete.length === 0) return 0;
+
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(['users'], 'readwrite');
+      const store = tx.objectStore('users');
+      let deleted = 0;
+      tx.oncomplete = () => resolve(deleted);
+      tx.onerror = () => reject(tx.error);
+      toDelete.forEach(u => {
+        const req = store.delete(u.address);
+        req.onsuccess = () => { deleted++; };
+      });
+    });
+  }
+
   async cleanup(maxAge = 7 * 24 * 60 * 60 * 1000) {
     if (this.disabled) return 0;
     if (!this.db) await this.init();

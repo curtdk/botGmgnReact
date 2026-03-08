@@ -697,15 +697,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ success: false, error: err.message });
         });
         return true; // 保持通道开启
-    } else if (msg.type === 'UPDATE_STATUS') {
-        // [新增] 接收状态更新消息
-        const { owner, status } = msg;
-        if (owner && status) {
-            contentManager.setStatus(owner, status);
-            // 异步持久化，不阻塞响应
-            contentManager.saveStatus();
-            sendResponse({ success: true });
-        }
     } else if (msg.type === 'EXECUTE_TRADES_REFRESH') {
         const requestTime = new Date().toISOString();
 
@@ -903,34 +894,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         return true; // 保持通道开启
     }
-});
-
-// -------------------------------------------------------------------------
-// 监听 HeliusMonitor 数据更新
-// -------------------------------------------------------------------------
-window.addEventListener('HELIUS_DATA_UPDATE', (event) => {
-  const { holders, statusMap } = event.detail;
-
-
-  // 更新 contentManager
-  if (contentManager) {
-    // 直接设置 statusMap
-    contentManager.statusMap = statusMap;
-
-    // 更新 dataMap
-    contentManager.dataMap.clear();
-    holders.forEach(holder => {
-      contentManager.dataMap.set(holder.owner, holder);
-    });
-
-    // 触发 UI 更新
-    safeSendMessage({
-      type: 'UI_RENDER_DATA',
-      data: contentManager.getSortedItems(),
-      statusMap: statusMap
-    });
-
-  }
 });
 
 // -------------------------------------------------------------------------

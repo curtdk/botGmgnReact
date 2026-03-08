@@ -136,6 +136,10 @@ sortedTrades.sort((a, b) => {
         我需要 在详细的知道系统中 账户评分 和使用 更新的流程体系。 我可以想到的。1. 所有的用户 都归集到了 traderStats   EXECUTE_HOLDERS_REFRESH  EXECUTE_HOLDERS_REFRESH 跟新信息的时候 丰富 traderStats ， 实时交易列表刷新的时候 ，所有用户列表 traderStats   根据自己的信息  逐一 评分 ，没有检测完成的 就在 列表 标签字段 显示 待处理 解决了 马上更新。
 
 
+_scheduleSlowScore() → 3s 后异步执行 detectHiddenRelays → 检测完成后重新评分 → 再次更新
+（评分未超阈值就是散户）
+
+已有 hiddenRelayCheckedAt 字段的用户 → 直接跳过，恢复缓存结果，不再翻页
 
 
-
+短地址：contentManager.shortAddressMap 仍在用，chrome.storage.gmgn_short_map 不属于用户状态，保持不变 ✓

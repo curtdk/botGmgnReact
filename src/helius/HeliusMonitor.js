@@ -694,11 +694,32 @@ export default class HeliusMonitor {
     this.isInitialized = false;
 
     if (this.signatureManager) this.signatureManager.clear();
+
+    // 停止时持久化当前 traderStats 到 IndexedDB（fire-and-forget，不阻塞停止流程）
+    // 必须在 metricsEngine.reset() 之前捕获 stats
+    const cm = this.cacheManager;
+    const mint = this.mint;
+    const stats = this.metricsEngine?.traderStats ? { ...this.metricsEngine.traderStats } : null;
+
     if (this.metricsEngine) this.metricsEngine.reset();
     this.sigFeed = [];
-    if (this.cacheManager) {
-      try { this.cacheManager.close(); } catch (_e) { /* ignore */ }
-    }
+
+    const persistAndClose = async () => {
+      try {
+        if (cm && stats && !cm.disabled) {
+          for (const [address, data] of Object.entries(stats)) {
+            if (data.score !== undefined || data.status) {
+              await cm.saveUser(address, mint, {
+                score: data.score,
+                status: data.status,
+              });
+            }
+          }
+        }
+      } catch (_e) {}
+      try { cm?.close(); } catch (_e) {}
+    };
+    persistAndClose();
 
   }
 
@@ -929,7 +950,7 @@ export default class HeliusMonitor {
       this._logScoringResult('慢速', scoreMap, filteredUsers, whaleAddresses);
       // 触发 UI 更新：4大参数重算 + 实时列表 label 刷新
       this.recalculateMetrics();
-    }, 3000); // 3s 防抖，聚合多条新 trade
+    }, 500); // 500ms 防抖，与 quickScore 对齐，更快触发慢速检测
   }
 
   // ─────────────────────────────────────────────────────────
@@ -1010,14 +1031,22 @@ export default class HeliusMonitor {
       const total = unchecked.length;
       sendLog(`[中转检测] 开始: ${total}个待查 / ${allUsers.length - total}个缓存`);
 
+      // 在开始检测前，将所有待检测用户的 status 设为 '正在评分'，立即推送 UI
+      for (const u of unchecked) {
+        userInfo[u].status = '正在评分';
+      }
+      this._fireMetricsUpdate();
+
       const BATCH_SIZE = 2;
       let relayCount = 0;
       let doneCount = 0;
 
       for (let i = 0; i < unchecked.length; i += BATCH_SIZE) {
+        if (this.isStopped) return; // 停止检查：外层批次
         const batch = unchecked.slice(i, i + BATCH_SIZE);
 
         for (const address of batch) {
+          if (this.isStopped) return; // 停止检查：单用户
           doneCount++;
           const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
           try {
@@ -1028,6 +1057,7 @@ export default class HeliusMonitor {
             const MAX_PAGES = this.bossConfig?.hidden_relay_max_pages || 10;
 
             for (let page = 0; page < MAX_PAGES; page++) {
+              if (this.isStopped) return; // 停止检查：翻页中
               const sigs = await this.dataFetcher.call('getSignaturesForAddress',
                 [address, { limit: 1000, ...(before ? { before } : {}) }]
               );
@@ -1049,11 +1079,24 @@ export default class HeliusMonitor {
             const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
             const oldestSig = lastBatch[lastBatch.length - 1].signature;
             sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 共${totalSigs}条sig，检测第1笔...`);
+            // [调试] 输出最旧的 sig，方便复查
+            console.log(`[中转检测-sig] ${shortAddr} 最旧sig: ${oldestSig}`);
 
             const tx = await this.dataFetcher.call('getTransaction', [
               oldestSig,
               { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
             ]);
+
+            // [调试] 输出 tx 关键信息，方便复查
+            if (tx) {
+              const ixList = tx.transaction?.message?.instructions || [];
+              const slot = tx.slot || '?';
+              const blockTime = tx.blockTime ? new Date(tx.blockTime * 1000).toISOString() : '?';
+              const ixSummary = ixList.map(ix => `${ix.program || '?'}/${ix.parsed?.type || 'raw'}`).join(', ');
+              console.log(`[中转检测-tx] ${shortAddr} slot=${slot} 时间=${blockTime} 指令=[${ixSummary}]`);
+            } else {
+              console.log(`[中转检测-tx] ${shortAddr} tx获取失败(null)`);
+            }
 
             let isRelay = false, conditions = [];
             if (tx) {
