@@ -415,6 +415,11 @@ class HeliusIntegration {
         this.monitor.metricsEngine.processTransaction(state.txData, this.monitor.mint);
         this.monitor.signatureManager.markProcessed(sig);
         processedCount++;
+        // 增量日志
+        const lastTrade = this.monitor.metricsEngine.recentTrades[0];
+        if (trade.maker) {
+          this.monitor.metricsEngine.printTradeUpdate(sig, trade.maker, lastTrade?.action || trade.event || '?', lastTrade?.solAmount || 0, lastTrade?.tokenAmount || 0, 'GMGN');
+        }
 
       } else {
         skippedCount++;

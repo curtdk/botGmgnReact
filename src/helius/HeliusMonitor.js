@@ -528,6 +528,14 @@ export default class HeliusMonitor {
       this.signatureManager.markProcessed(sig);
       this.cacheManager.updateSigStatus(sig, { isProcessed: true }).catch(() => {});
 
+      // 增量日志：输出新交易详情 + 用户轮次 + 4大参数快照
+      const feePayer = state.txData?.data?.transaction?.message?.accountKeys?.[0]?.pubkey
+                    || state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
+      const lastTrade = this.metricsEngine.recentTrades[0];
+      if (feePayer) {
+        this.metricsEngine.printTradeUpdate(sig, feePayer, lastTrade?.action || '?', lastTrade?.solAmount || 0, lastTrade?.tokenAmount || 0, source);
+      }
+
       this.metricsEngine.printMetrics();
 
       // sigFeed 条目升级为已处理状态
@@ -633,6 +641,12 @@ export default class HeliusMonitor {
           this.signatureManager.markHasData(sig, tx);
           this.metricsEngine.processTransaction({ type: 'helius', data: tx }, this.mint);
           this.signatureManager.markProcessed(sig);
+          // 增量日志
+          const feePayer = tx.transaction?.message?.accountKeys?.[0]?.pubkey;
+          const lastTrade = this.metricsEngine.recentTrades[0];
+          if (feePayer) {
+            this.metricsEngine.printTradeUpdate(sig, feePayer, lastTrade?.action || '?', lastTrade?.solAmount || 0, lastTrade?.tokenAmount || 0, 'verify');
+          }
         }
 
         this._log(`Verify: 处理完成 ${txs.length} 条新交易`);

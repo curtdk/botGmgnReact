@@ -394,6 +394,54 @@ export default class MetricsEngine {
     this.getMetrics();
   }
 
+  /**
+   * 增量日志：新交易处理后调用
+   * 输出：新交易详情 + 该用户轮次状态 + 当前4大参数快照
+   */
+  printTradeUpdate(sig, user, action, solChange, tokenChange, source) {
+    const stats = this.traderStats[user];
+    if (!stats) return;
+
+    const short = (a) => `${a.slice(0, 6)}..${a.slice(-4)}`;
+    const solStr = solChange >= 0 ? `+${solChange.toFixed(4)}` : solChange.toFixed(4);
+    const tokStr = tokenChange >= 0 ? `+${Math.abs(tokenChange).toFixed(0)}` : `-${Math.abs(tokenChange).toFixed(0)}`;
+
+    // 用户轮次状态
+    const cr = stats.currentRound;
+    const hist = stats.completedRounds || [];
+    const roundLines = hist.map((r, i) =>
+      `    历史轮${i + 1}: buy=${r.buySOL.toFixed(4)} sell=${r.sellSOL.toFixed(4)} net=${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(4)}`
+    ).join('\n');
+    const crLine = cr.buySOL > 0 || cr.txCount > 0
+      ? `    当前轮次: buy=${cr.buySOL.toFixed(4)} sell=${cr.sellSOL.toFixed(4)} 净成本=${(cr.buySOL - cr.sellSOL).toFixed(4)} txCount=${cr.txCount}`
+      : `    当前轮次: 无`;
+
+    // 4大参数快照（不重复触发 dataFlowLogger）
+    let yiLuDai = 0, benLunXiaZhu = 0, currentNetFlow = 0;
+    Object.entries(this.traderStats).forEach(([addr, s]) => {
+      if (this.filteredUsers.size > 0 && !this.filteredUsers.has(addr)) return;
+      if (this.whaleAddresses.has(addr)) return;
+      if (s.totalHistoricalNetFlow !== 0) yiLuDai += s.totalHistoricalNetFlow;
+      const r = s.currentRound;
+      if (r.buySOL > 0 || r.txCount > 0) {
+        benLunXiaZhu += r.buySOL - r.sellSOL;
+        currentNetFlow += r.sellSOL - r.buySOL;
+      }
+    });
+    const fuYing = yiLuDai + currentNetFlow;
+    const chengBen = benLunXiaZhu - yiLuDai;
+
+    console.log(
+      `[4大参数-追加] ── 新交易 ──\n` +
+      `  sig=${sig?.slice(0, 12)}.. | addr=${short(user)} | ${action} | SOL=${solStr} | Token=${tokStr} | 来源=${source || '?'}\n` +
+      `  用户状态(历史${hist.length}轮):\n` +
+      (roundLines ? roundLines + '\n' : '') +
+      crLine + '\n' +
+      `  ── 当前4大参数快照 ──\n` +
+      `  已落袋=${yiLuDai >= 0 ? '+' : ''}${yiLuDai.toFixed(4)}  本轮下注=${benLunXiaZhu.toFixed(4)}  本轮成本=${chengBen.toFixed(4)}  浮盈亏=${fuYing >= 0 ? '+' : ''}${fuYing.toFixed(4)}  SOL`
+    );
+  }
+
   printDetailedMetrics() {
     const traders = Object.entries(this.traderStats);
     if (traders.length === 0) return;

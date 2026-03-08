@@ -1445,6 +1445,39 @@ const App = () => {
               <span style={{ color: isStarted ? '#10b981' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {startStage}
               </span>
+              {heliusMetrics && (
+                  <>
+                      <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+                      <span style={{ flexShrink: 0 }}><span style={{ color: '#9ca3af' }}>活跃</span> {heliusMetrics.activeCount}</span>
+                      <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+                      <span style={{ flexShrink: 0 }}><span style={{ color: '#9ca3af' }}>退出</span> {heliusMetrics.exitedCount}</span>
+                      {heliusStats && (
+                          <>
+                              <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+                              <span style={{ flexShrink: 0 }} title={`Helius获取: ${heliusStats.heliusFetchedTotal || 0}`}>
+                                  处理 {heliusStats.isProcessed}/{heliusStats.total}
+                              </span>
+                              <span style={{ color: '#374151', flexShrink: 0 }}>|</span>
+                              <span style={{ color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b', flexShrink: 0 }}>
+                                  {heliusStats.needFetch === 0 ? `✓ Sig${heliusStats.total}` : `⚠ Sig${heliusStats.hasData}/${heliusStats.total}`}
+                              </span>
+                          </>
+                      )}
+                  </>
+              )}
+              <span style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {metricsUnit === 'USDT' && solUsdtPrice > 0 && (
+                      <span style={{ fontSize: '10px', color: '#6b7280' }}>≈${solUsdtPrice.toFixed(0)}</span>
+                  )}
+                  <button onClick={handleMetricsUnitToggle} style={{
+                      fontSize: '10px', padding: '1px 6px', borderRadius: '4px',
+                      border: '1px solid #374151',
+                      backgroundColor: metricsUnit === 'USDT' ? '#1d4ed8' : '#374151',
+                      color: '#fff', cursor: 'pointer', lineHeight: '16px'
+                  }}>
+                      {metricsUnit === 'USDT' ? '$ USDT' : '◎ SOL'}
+                  </button>
+              </span>
           </div>
       )}
 
@@ -1454,22 +1487,6 @@ const App = () => {
           {/* 核心指标 */}
           {heliusMetrics && (
               <>
-                  {/* 切换按钮 */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                      {metricsUnit === 'USDT' && solUsdtPrice > 0 && (
-                          <span style={{ fontSize: '10px', color: '#6b7280' }}>
-                              1 SOL ≈ ${solUsdtPrice.toFixed(0)}
-                          </span>
-                      )}
-                      <button onClick={handleMetricsUnitToggle} style={{
-                          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-                          border: '1px solid #374151',
-                          backgroundColor: metricsUnit === 'USDT' ? '#1d4ed8' : '#374151',
-                          color: '#fff', cursor: 'pointer'
-                      }}>
-                          {metricsUnit === 'USDT' ? '$ USDT' : '◎ SOL'}
-                      </button>
-                  </div>
                   {/* 手动输入 SOL 价格弹框 */}
                   {showPriceInput && (
                       <div style={{
@@ -1528,7 +1545,7 @@ const App = () => {
                           border: '1px solid #5b21b6'
                       }}>
                           <div style={{ color: '#c4b5fd', fontSize: '11px', marginBottom: '4px' }}>本轮下注</div>
-                          <div style={{ color: '#f97316', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                          <div style={{ color: heliusMetrics.benLunXiaZhu < 0 ? '#ef4444' : '#f97316', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
                               {(() => { const m = fmtMetric(heliusMetrics.benLunXiaZhu); return <>{m.value}<span style={{ fontSize: '9px', color: '#c4b5fd', marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
@@ -1541,7 +1558,7 @@ const App = () => {
                           border: '1px solid #1e3a5f'
                       }}>
                           <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>本轮成本</div>
-                          <div style={{ color: '#06b6d4', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                          <div style={{ color: heliusMetrics.benLunChengBen < 0 ? '#ef4444' : '#06b6d4', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
                               {(() => { const m = fmtMetric(heliusMetrics.benLunChengBen); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
@@ -1554,7 +1571,7 @@ const App = () => {
                           border: '1px solid #1e3a5f'
                       }}>
                           <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>已落袋</div>
-                          <div style={{ color: '#10b981', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
+                          <div style={{ color: heliusMetrics.yiLuDai < 0 ? '#ef4444' : '#10b981', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
                               {(() => { const m = fmtMetric(heliusMetrics.yiLuDai); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
@@ -1770,7 +1787,7 @@ const App = () => {
               ...styles.summary,
               marginTop: '8px'
           }}>
-              {/* 行1：标题 + Mint + 启用开关 */}
+              {/* 行1：标题 + Mint + SOL/USDT切换 + 启用开关 */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
                   <span style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>📊 实时指标</span>
                   {pageMint && (
@@ -1801,34 +1818,6 @@ const App = () => {
                   )}
               </div>
 
-              {/* 行2：指标数据一行 */}
-              {heliusMetrics ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '10px', color: styles.colors.textSecondary }}>
-                      <span><span style={{ color: '#9ca3af' }}>活跃</span> {heliusMetrics.activeCount}</span>
-                      <span style={{ color: styles.colors.border }}>|</span>
-                      <span><span style={{ color: '#9ca3af' }}>退出</span> {heliusMetrics.exitedCount}</span>
-                      {heliusStats && (
-                          <>
-                              <span style={{ color: styles.colors.border }}>|</span>
-                              <span title={`Helius获取: ${heliusStats.heliusFetchedTotal || 0} | WS=${heliusStats.bySources.websocket} 插件=${heliusStats.bySources.plugin}`}>
-                                  处理 {heliusStats.isProcessed}/{heliusStats.total}
-                              </span>
-                              <span style={{ color: styles.colors.border }}>|</span>
-                              <span style={{ color: heliusStats.needFetch === 0 ? '#10b981' : '#f59e0b' }}>
-                                  {heliusStats.needFetch === 0 ? `✓ Sig${heliusStats.total}` : `⚠ Sig${heliusStats.hasData}/${heliusStats.total}`}
-                              </span>
-                              {heliusMetrics.skippedWhaleCount > 0 && (
-                                  <>
-                                      <span style={{ color: styles.colors.border }}>|</span>
-                                      <span>跳庄 {heliusMetrics.skippedWhaleCount}</span>
-                                  </>
-                              )}
-                          </>
-                      )}
-                  </div>
-              ) : (
-                  <div style={{ fontSize: '10px', color: styles.colors.textSecondary, fontStyle: 'italic' }}>等待 mint 数据...</div>
-              )}
               {heliusWsStatus.error && (
                   <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
               )}
