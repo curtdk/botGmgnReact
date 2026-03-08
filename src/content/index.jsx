@@ -2,6 +2,10 @@ import { getMintFromPage, getPriceFromPage, findPriceDOM } from '../utils/api';
 import ContentScoreManager from './ContentScoreManager';
 import FlowerMarker from './FlowerMarker';
 import './HeliusIntegration.js'; // 导入 Helius 集成
+import CacheManager from '../helius/CacheManager';
+
+// 模块级 CacheManager，运行在内容脚本上下文（访问页面 IndexedDB），供侧边栏统计/清理操作使用
+const _statsCm = new CacheManager();
 
 // -------------------------------------------------------------------------
 // GMGN Content Script (Headless)
@@ -621,6 +625,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else {
             sendResponse({ success: false, error: 'HeliusIntegration not found' });
         }
+    }
+    // [新增] 用户缓存统计（IndexedDB users 表）
+    else if (msg.type === 'GET_USER_CACHE_STATS') {
+        _statsCm.loadAllUsers().then(all => {
+            sendResponse({ success: true, data: all });
+        }).catch(e => {
+            sendResponse({ success: false, error: e.message });
+        });
+        return true;
+    }
+    // [新增] 清除 score < threshold 的用户缓存
+    else if (msg.type === 'DELETE_USERS_BELOW') {
+        _statsCm.deleteUsersBelow(msg.threshold).then(deleted => {
+            sendResponse({ success: true, deleted });
+        }).catch(e => {
+            sendResponse({ success: false, error: e.message });
+        });
+        return true;
+    }
+    // [新增] 清除 score >= threshold 的用户缓存
+    else if (msg.type === 'DELETE_USERS_ABOVE') {
+        _statsCm.deleteUsersAbove(msg.threshold).then(deleted => {
+            sendResponse({ success: true, deleted });
+        }).catch(e => {
+            sendResponse({ success: false, error: e.message });
+        });
+        return true;
     }
     // 必须返回 true 以支持异步 sendResponse (虽然这里是同步的，但保持习惯)
     return true; 

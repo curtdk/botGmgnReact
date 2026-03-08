@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { stoSet } from '../../utils/api';
 
+// 通过消息向内容脚本（content script）请求 IndexedDB users 表操作
+// 侧边栏与内容脚本 IndexedDB origin 不同，必须走消息传递
+const sendToContentScript = (msg) => new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs[0]?.id) { resolve({ success: false, error: 'no tab' }); return; }
+        chrome.tabs.sendMessage(tabs[0].id, msg, (res) => {
+            resolve(res || { success: false, error: 'no response' });
+        });
+    });
+});
+
 const BossSettingsModal = ({ onClose, onAnalyze }) => {
     const [config, setConfig] = useState({
         // 原有策略
@@ -341,14 +352,12 @@ const UserCacheManager = () => {
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState('');
 
-    const getCacheManager = () => window.__heliusIntegration?.monitor?.cacheManager;
-
     const loadStats = async () => {
         setLoading(true);
         try {
-            const cm = getCacheManager();
-            if (!cm) { setMsg('未连接（请先点击开始）'); setLoading(false); return; }
-            const all = await cm.loadAllUsers();
+            const res = await sendToContentScript({ type: 'GET_USER_CACHE_STATS' });
+            if (!res.success) { setMsg('加载失败: ' + (res.error || '未知错误')); setLoading(false); return; }
+            const all = res.data || [];
             const byStatus = {};
             const byScore = { '未评分': 0, '0-9': 0, '10-29': 0, '30-49': 0, '50-69': 0, '70+': 0 };
             all.forEach(u => {
@@ -372,13 +381,11 @@ const UserCacheManager = () => {
     const handleClearBelow = async () => {
         const t = parseInt(clearThreshold);
         if (isNaN(t) || t <= 0) return;
-        if (!window.confirm(`确认删除 score < ${t} 的散户缓存记录？此操作不可恢复`)) return;
+        if (!window.confirm(`确认删除 score < ${t} 的缓存记录？此操作不可恢复`)) return;
         setLoading(true);
         try {
-            const cm = getCacheManager();
-            if (!cm) { setMsg('未连接'); setLoading(false); return; }
-            const deleted = await cm.deleteUsersBelow(t);
-            setMsg(`已删除 ${deleted} 条`);
+            const res = await sendToContentScript({ type: 'DELETE_USERS_BELOW', threshold: t });
+            setMsg(res.success ? `已删除 ${res.deleted} 条` : ('删除失败: ' + (res.error || '')));
             await loadStats();
         } catch (e) {
             setMsg('删除失败: ' + e.message);
@@ -392,10 +399,8 @@ const UserCacheManager = () => {
         if (!window.confirm(`确认删除 score ≥ ${t} 的缓存记录（不含手动标记）？此操作不可恢复`)) return;
         setLoading(true);
         try {
-            const cm = getCacheManager();
-            if (!cm) { setMsg('未连接'); setLoading(false); return; }
-            const deleted = await cm.deleteUsersAbove(t);
-            setMsg(`已删除 ${deleted} 条`);
+            const res = await sendToContentScript({ type: 'DELETE_USERS_ABOVE', threshold: t });
+            setMsg(res.success ? `已删除 ${res.deleted} 条` : ('删除失败: ' + (res.error || '')));
             await loadStats();
         } catch (e) {
             setMsg('删除失败: ' + e.message);
