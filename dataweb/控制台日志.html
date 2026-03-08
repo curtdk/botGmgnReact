@@ -1,74 +1,26 @@
-[4大参数-追加] ── 新交易 ──
-  sig=3g7skNyF1FA6.. | addr=Gygj9Q..BUpA | 买入 | SOL=+0.0037 | Token=+701422 | 来源=GMGN
-  用户状态(历史19轮):
-    历史轮1: buy=0.0000 sell=0.0198 net=+0.0198
-    历史轮2: buy=0.0000 sell=0.0158 net=+0.0158
-    历史轮3: buy=0.0000 sell=0.0126 net=+0.0126
-    历史轮4: buy=0.0000 sell=0.0101 net=+0.0101
-    历史轮5: buy=0.0000 sell=0.0081 net=+0.0081
-    历史轮6: buy=0.0000 sell=0.0065 net=+0.0065
-    历史轮7: buy=0.0114 sell=0.0075 net=-0.0039
-    历史轮8: buy=0.0131 sell=0.0086 net=-0.0045
-    历史轮9: buy=0.0000 sell=0.0069 net=+0.0069
-    历史轮10: buy=0.0000 sell=0.0055 net=+0.0055
-    历史轮11: buy=0.0044 sell=0.0053 net=+0.0009
-    历史轮12: buy=0.0154 sell=0.0073 net=-0.0081
-    历史轮13: buy=0.0058 sell=0.0070 net=+0.0012
-    历史轮14: buy=0.0000 sell=0.0056 net=+0.0056
-    历史轮15: buy=0.0045 sell=0.0054 net=+0.0009
-    历史轮16: buy=0.0095 sell=0.0062 net=-0.0033
-    历史轮17: buy=0.0050 sell=0.0059 net=+0.0010
-    历史轮18: buy=0.0000 sell=0.0048 net=+0.0048
-    历史轮19: buy=0.0038 sell=0.0046 net=+0.0008
-    当前轮次: buy=0.0037 sell=0.0000 净成本=0.0037 txCount=1
-  ── 当前4大参数快照 ──
-  已落袋=+0.0805  本轮下注=0.1024  本轮成本=0.0219  浮盈亏=-0.0219  SOL
-index.jsx.js:4667 [GMGN-PROCESSED] 第1页 新增=2条 / 共36条
-index.jsx.js:3600 [GMGN] 分页加载完成，SignatureManager sig 总数=35 有数据=undefined
-index.jsx.js:4658 [GMGN-API-RAW] 第1页 共36条
-index.jsx.js:3875 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=36 monitor=true isInit=true loggerOn=true
-index.jsx.js:4667 [GMGN-PROCESSED] 第1页 新增=0条 / 共36条
-index.jsx.js:3600 [GMGN] 分页加载完成，SignatureManager sig 总数=35 有数据=undefined
-index.jsx.js:4658 [GMGN-API-RAW] 第1页 共37条
-index.jsx.js:3875 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=37 monitor=true isInit=true loggerOn=true
-index.jsx.js:2026 [4大参数-追加] ── 新交易 ──
-  sig=4H9edAybhcWi.. | addr=ABS6PM..72fv | 卖出 | SOL=+0.0219 | Token=+3520919 | 来源=GMGN
-  用户状态(历史1轮):
-    历史轮1: buy=0.0988 sell=0.0219 net=-0.0768
-    当前轮次: 无
-  ── 当前4大参数快照 ──
-  已落袋=+0.0037  本轮下注=0.0037  本轮成本=0.0000  浮盈亏=-0.0000  SOL
-
-
-
-
-  两笔交易前后对比
-交易1 之后（Gygj9Q 买入 0.0037 SOL）
-来源	参与者	贡献
-已落袋	Gygj9Q 历史19轮合计	+0.0805
-本轮下注	Gygj9Q 当前轮(0.0037) + ABS6PM 当前轮(0.0988)	0.1024
-本轮成本	0.1024 - 0.0805	0.0219
-注意此时 ABS6PM 还在当前轮，买了 0.0988 SOL 还没卖出。
-
-交易2 之后（ABS6PM 卖出 0.0219 SOL）
-ABS6PM 卖出全部 Token，触发轮次关闭：
-
-
-历史轮1: buy=0.0988  sell=0.0219  net = 0.0219 - 0.0988 = -0.0768  ← 亏损
-当前轮次: 无  ← 清仓退出
-于是：
-
-变化	原因
-已落袋 +0.0805 → +0.0037	ABS6PM 亏损 -0.0768 并入历史：0.0805 + (-0.0768) = +0.0037
-本轮下注 0.1024 → 0.0037	ABS6PM 退出当前轮，0.0988 从下注中消失，只剩 Gygj9Q 的 0.0037
-本轮成本 → 0.0000	0.0037 - 0.0037 = 0
-结论：计算正确，但有一个需要注意的问题
-数字跳变是正常的 — ABS6PM 买了 0.0988 SOL 的仓，只卖回 0.0219 SOL，亏损了 0.0768 SOL，这笔亏损从「未实现」变为「已实现」，进入了已落袋。
-
-但有一个潜在问题：ABS6PM 的 历史轮1.buy=0.0988 来自哪里？
-
-如果这个 0.0988 是从 GMGN 历史 trades 翻页加载的，需要确认：
-
-GMGN 是否加载了 ABS6PM 全部历史买入？
-还是只加载了部分页，导致 buy 值被低估 / 高估？
-可以看一下控制台日志里 ABS6PM 最早是什么时候进入 traderStats 的，以及翻页加载了几页。如果数据不完整，会导致轮次净流水失真。
+[Monitor] 用户点击开始，启动 monitor...
+index.jsx.js:2744 [Helius] 启动 mint=DbMFyKeS...
+index.jsx.js:2760 [Helius] 手动标记加载完成: 0 条
+index.jsx.js:2777 [Helius] ── Step 1: 获取全部历史 sig ──
+index.jsx.js:2788 [Helius] Step 1 ✓ sig 获取完成: 新增=44 缓存=0 总计=44
+index.jsx.js:2794 [Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──
+gmgn.57f22e4d.js:13 [useBgTrading] [isTradingReady] still false after 5s {
+  "disabled": false,
+  "querySkipped": false,
+  "chain": "SOLANA",
+  "isValidTokenMint": true,
+  "tokenMint": "DbMFyKeSXVubhJcFLJjhpMQqJLmo7iV8AiP9YvSDpump",
+  "solPairInfosLoading": false,
+  "solPairInfosSuccess": true,
+  "solPairInfosError": false,
+  "solPairInfosErrorDetail": null,
+  "bscPairInfosLoading": false,
+  "bscPairInfosSuccess": false,
+  "bscPairInfosError": false,
+  "bscPairInfosErrorDetail": null,
+  "pairInfosRawLength": null,
+  "pairInfosRawFirstMint": null,
+  "hasPairInfo": false,
+  "pairInfoMint": null,
+  "hasCurrentPresetConfig": true
+}

@@ -46,6 +46,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     // 文件输入引用
     const fileShortRef = useRef(null);
     const fileStatusRef = useRef(null);
+    const bossConfigRef = useRef({});
     const [statusMsg, setStatusMsg] = useState('');
 
     useEffect(() => {
@@ -75,7 +76,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             if(res.auto_sync_remarks !== undefined) setAutoSyncRemarks(res.auto_sync_remarks);
 
             if(res.boss_config) {
-                // 如果有 boss_config，尝试从中读取 fire_thresholds
+                bossConfigRef.current = res.boss_config;
                 const ft = res.boss_config.fire_thresholds;
                 if(Array.isArray(ft)) {
                     setFireThreshold1(ft[0] ?? 100);
@@ -123,11 +124,11 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             
             auto_sync_remarks: autoSyncRemarks,
 
-            // [新增] 更新 boss_config 中的 fire_thresholds (需要合并)
             boss_config: {
+                ...bossConfigRef.current,
                 fire_thresholds: [
-                    parseInt(fireThreshold1) || 100, 
-                    parseInt(fireThreshold2) || 200, 
+                    parseInt(fireThreshold1) || 100,
+                    parseInt(fireThreshold2) || 200,
                     parseInt(fireThreshold3) || 300
                 ]
             },
