@@ -329,8 +329,8 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
                             <span style={{ ...colStyle('56px'), color: '#6b7280' }}>{fmtToken(t.tokenAmount)}</span>
                             <span style={{ ...colStyle('68px'), color: isBuy ? '#22c55e' : '#ef4444' }}>{fmtSol(t.solAmount)}{flames(t.solAmount)}</span>
                             <span style={{ ...colStyle('36px'), color: '#ffffff', fontFamily: 'monospace' }}>{shortAddr(t.address)}</span>
-                            <span style={{ flex: 1, textAlign: 'right', color: t.label ? (t.label === '庄家' ? '#ef4444' : '#10b981') : '#4b5563' }}>
-                                {t.label || '待评分'}
+                            <span style={{ flex: 1, textAlign: 'right', color: t.label === '庄家' ? '#ef4444' : t.label === '散户' ? '#10b981' : '#4b5563' }}>
+                                {t.label || '普通'}
                             </span>
                         </div>
                     );

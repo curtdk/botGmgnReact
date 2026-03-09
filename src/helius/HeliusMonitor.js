@@ -36,9 +36,8 @@ export default class HeliusMonitor {
     this.heliusApiEnabled = true;
     this.heliusFetchedTotal = 0;
 
-    // 评分配置
+    // 评分配置（唯一阈值：score >= scoreThreshold → 庄家）
     this.scoreThreshold = 100;
-    this.statusThreshold = 50;
     this.manualScores = {};
     this.bossConfig = {};
 
@@ -265,28 +264,47 @@ export default class HeliusMonitor {
     this._log('Step 3.5: 立即评分...');
     const traderCount = Object.keys(this.metricsEngine.traderStats).length;
     if (traderCount > 0) {
+      // [调试] Step 3.5 前 traderStats 快照
+      console.log('[Step3.5-前] traderStats:',
+        Object.entries(this.metricsEngine.traderStats).map(([addr, info]) => ({
+          addr: `${addr.slice(0, 6)}..${addr.slice(-4)}`,
+          score: info.score, status: info.status, manualScore: info.manualScore,
+        }))
+      );
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
-        this.statusThreshold
+        this.scoreThreshold
       );
       for (const [address, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
-          this.metricsEngine.traderStats[address].status = scoreData.status;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+          // ScoringEngine 已处理三态：enable_hidden_relay=true 时非庄家返回'普通'，否则'散户'
+          this.metricsEngine.traderStats[address].status = scoreData.status;
         }
       }
+      // filteredUsers = score < threshold 的全部用户（含"普通"状态）
+      // 列表立刻显示；慢速评分完成一个后该用户 label 升级为"散户"
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
       this.metricsEngine.setFilteredUsers(filteredUsers);
+      // [调试] Step 3.5 后 traderStats 快照
+      console.log('[Step3.5-后] traderStats:',
+        Object.entries(this.metricsEngine.traderStats).map(([addr, info]) => ({
+          addr: `${addr.slice(0, 6)}..${addr.slice(-4)}`,
+          score: info.score, status: info.status, manualScore: info.manualScore,
+        }))
+      );
       console.log(`[Helius] Step 3.5 ✓ 评分完成，共 ${scoreMap.size} 个账户，散户=${filteredUsers.size} 庄家=${whaleAddresses.size}`);
       this._log(`Step 3.5 ✓: ${scoreMap.size} 账户已评分，散户=${filteredUsers.size}`);
     } else {
       console.log('[Helius] Step 3.5 跳过（无账户数据）');
     }
+    // 触发慢速评分（enable_hidden_relay=true 时异步运行 detectHiddenRelays）
+    this._scheduleSlowScore();
 
     // ── 4大参数报告（评分后输出，filteredUsers 已生效）──
     this.metricsEngine.printCalculationReport();
@@ -545,6 +563,7 @@ export default class HeliusMonitor {
       const txAddr = state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
       if (txAddr && this.metricsEngine.traderStats[txAddr]?.score === undefined) {
         this._scheduleQuickScore();
+        this._scheduleSlowScore();
       }
     }
   }
@@ -731,16 +750,16 @@ export default class HeliusMonitor {
     try {
       this.metricsEngine.updateUsersInfo(holders);
 
-      if (this.bossConfig.enable_hidden_relay) {
-        await this.detectHiddenRelays();
-      }
+      // 慢速评分统一由 _scheduleSlowScore() 调度（有 debounce，防重入）
+      // 不在此直接调用 detectHiddenRelays()，避免与初始化/实时评分并行冲突
+      // this._scheduleSlowScore();
 
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
-        this.statusThreshold
+        this.scoreThreshold
       );
 
       // 写入 traderStats
@@ -748,6 +767,7 @@ export default class HeliusMonitor {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+          // ScoringEngine 已处理三态，直接写入
           this.metricsEngine.traderStats[address].status = scoreData.status;
         }
       }
@@ -755,6 +775,7 @@ export default class HeliusMonitor {
       // 异步持久化用户评分到 IndexedDB
       this._persistUserScores(scoreMap).catch(() => {});
 
+      // filteredUsers = score < threshold 的全部用户（含"普通"）→ 与快速评分一致
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
       this.metricsEngine.setFilteredUsers(filteredUsers);
@@ -858,7 +879,7 @@ export default class HeliusMonitor {
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
-        this.statusThreshold
+        this.scoreThreshold
       );
       for (const [addr, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[addr]) {
@@ -895,15 +916,17 @@ export default class HeliusMonitor {
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
-        this.statusThreshold
+        this.scoreThreshold
       );
       for (const [address, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
-          this.metricsEngine.traderStats[address].status = scoreData.status;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+          // ScoringEngine 已处理三态，直接写入
+          this.metricsEngine.traderStats[address].status = scoreData.status;
         }
       }
+      // filteredUsers = score < threshold 的全部用户（含"普通"）→ 列表立刻显示
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
       this.metricsEngine.setFilteredUsers(filteredUsers);
@@ -920,9 +943,12 @@ export default class HeliusMonitor {
 
   _scheduleSlowScore() {
     if (!this.bossConfig.enable_hidden_relay) return;
+    console.log('[评分-慢速] ▶ _scheduleSlowScore 已触发（500ms 后运行）');
     clearTimeout(this._slowScoreTimer);
     this._slowScoreTimer = setTimeout(async () => {
       if (this.isStopped) return;
+      // 已在检测中：不重置已确认状态，直接跳过（防止 label 闪烁回"普通"）
+      if (this._relayDetecting) return;
       console.log(`[评分-慢速] ▶ 开始 detectHiddenRelays...`);
       // 运行 detectHiddenRelays（只处理尚未检测过的用户，已检测过的自动跳过）
       await this.detectHiddenRelays();
@@ -935,21 +961,37 @@ export default class HeliusMonitor {
         this.metricsEngine.traderStats,
         this.bossConfig,
         this.manualScores,
-        this.statusThreshold
+        this.scoreThreshold
       );
       for (const [address, scoreData] of scoreMap.entries()) {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
-          this.metricsEngine.traderStats[address].status = scoreData.status;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
+          // 全部检测完成：仍是"普通"的用户升级为最终状态（非庄家→散户）
+          if (this.metricsEngine.traderStats[address].status === '普通') {
+            this.metricsEngine.traderStats[address].status = scoreData.isWhale ? '庄家' : '散户';
+          }
         }
       }
+      // filteredUsers = score < threshold 的全部用户（含散户 + 仍是普通的用户）
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
       this.metricsEngine.setFilteredUsers(filteredUsers);
       this._logScoringResult('慢速', scoreMap, filteredUsers, whaleAddresses);
       // 触发 UI 更新：4大参数重算 + 实时列表 label 刷新
       this.recalculateMetrics();
+      // [调试] 慢速评分结束，打印全部 traderStats
+      console.log('[慢速评分-完成] traderStats 完整快照:',
+        Object.entries(this.metricsEngine.traderStats).map(([addr, info]) => ({
+          addr: `${addr.slice(0, 6)}..${addr.slice(-4)}`,
+          score: info.score,
+          status: info.status,
+          has_hidden_relay: info.has_hidden_relay,
+          funding_account: info.funding_account,
+          has_holder_snapshot: info.has_holder_snapshot,
+          manualScore: info.manualScore,
+        }))
+      );
     }, 500); // 500ms 防抖，与 quickScore 对齐，更快触发慢速检测
   }
 
@@ -993,10 +1035,14 @@ export default class HeliusMonitor {
       const existingUsers = await this.cacheManager.loadUsersData(allUsers);
 
       // 跳过条件：
+      //  0. 已确认为"庄家" → 无需中转检测
       //  1. 无资金来源（funding_account 为空）→ rule 9 条件1已直接成立，无需慢速检测
       //  2. 已有隐藏中转检测结果（hiddenRelayCheckedAt 存在）
       //  3. 已有评分记录（上次已完整处理过，不再做慢速 sig 翻页）
       const unchecked = allUsers.filter(u => {
+        // ⓪ 已确认庄家，跳过（只处理"普通"用户）
+        if (userInfo[u]?.status === '庄家') return false;
+
         // ① 有 holder 快照且确认无资金来源 → 条件1(无资金来源)已覆盖，跳过链上检测
         //    注意：trade-only 用户的 has_holder_snapshot 未设置，funding_account=undefined
         //          不代表确认无来源，应该进入检测
@@ -1030,12 +1076,6 @@ export default class HeliusMonitor {
 
       const total = unchecked.length;
       sendLog(`[中转检测] 开始: ${total}个待查 / ${allUsers.length - total}个缓存`);
-
-      // 在开始检测前，将所有待检测用户的 status 设为 '正在评分'，立即推送 UI
-      for (const u of unchecked) {
-        userInfo[u].status = '正在评分';
-      }
-      this._fireMetricsUpdate();
 
       const BATCH_SIZE = 2;
       let relayCount = 0;
@@ -1122,6 +1162,49 @@ export default class HeliusMonitor {
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
           }
+          // 每个用户确认后立即重打分 + 更新 filteredUsers（仅已确认散户）+ 重算4大参数
+          {
+            const { scoreMap: fm, whaleAddresses: fw } = this.scoringEngine.calculateScores(
+              this.metricsEngine.traderStats,
+              this.metricsEngine.traderStats,
+              this.bossConfig,
+              this.manualScores,
+              this.scoreThreshold
+            );
+            // 只更新已完成处理的 unchecked 用户的 status
+            // 跳过的用户（不在 unchecked，如快速确认的庄家）保持原 status 不覆盖
+            const processedSet = new Set(unchecked.slice(0, doneCount));
+            for (const [addr, sd] of fm.entries()) {
+              if (this.metricsEngine.traderStats[addr]) {
+                this.metricsEngine.traderStats[addr].score = sd.score;
+                this.metricsEngine.traderStats[addr].score_reasons = sd.reasons;
+                if (processedSet.has(addr)) {
+                  // relay 检测已完成：非庄家确认为'散户'（不再是待确认的'普通'）
+                  this.metricsEngine.traderStats[addr].status = sd.isWhale ? '庄家' : '散户';
+                }
+              }
+            }
+            // 把仍在等待检测的用户重标为"普通"
+            for (const pendingAddr of unchecked.slice(doneCount)) {
+              if (!this.metricsEngine.traderStats[pendingAddr]?.manualScore) {
+                this.metricsEngine.traderStats[pendingAddr].status = '普通';
+              }
+            }
+            // filteredUsers = score < threshold 的全部用户（散户 + 仍待确认的普通用户）
+            // "普通"用户保留在列表，label 仍显示"普通"，确认后升级为"散户"
+            const confirmedFiltered = this.filterUsersByScore(fm);
+            this.metricsEngine.updateWhaleAddresses(fw);
+            this.metricsEngine.setFilteredUsers(confirmedFiltered);
+            this.recalculateMetrics();
+            // [调试] 每个用户确认后打印当前 traderStats 状态
+            const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
+            console.log(`[中转检测-进度] (${doneCount}/${total}) ${shortAddr} 确认完成，当前快照:`,
+              Object.entries(this.metricsEngine.traderStats).map(([addr, info]) => ({
+                addr: `${addr.slice(0, 6)}..${addr.slice(-4)}`,
+                score: info.score, status: info.status,
+              }))
+            );
+          }
           await new Promise(r => setTimeout(r, 500));
         }
         if (i + BATCH_SIZE < unchecked.length) await new Promise(r => setTimeout(r, 800));
@@ -1167,9 +1250,8 @@ export default class HeliusMonitor {
     this.recalculateMetrics();
   }
 
-  setStatusThreshold(threshold) {
-    this.statusThreshold = threshold;
-  }
+  // statusThreshold 已废弃，保留空方法避免外部调用报错
+  setStatusThreshold(_threshold) {}
 
   setBossConfig(config) {
     this.bossConfig = config;

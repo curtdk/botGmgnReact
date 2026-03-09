@@ -65,6 +65,8 @@ export default class MetricsEngine {
 
   _initTrader(address) {
     this.traderStats[address] = {
+      // 默认状态：评分系统后续确认为"散户"/"庄家"
+      status: '普通',
       // 全周期累计（用于参考/兼容旧逻辑）
       netSolSpent: 0,
       netTokenReceived: 0,
@@ -605,6 +607,8 @@ export default class MetricsEngine {
       existing.hidden_relay_conditions = undefined;
     }
 
+    // 排除 GMGN API 返回的 status 字段，避免覆盖评分系统管理的 status
+    const { status: _apiStatus, ...holderDataRest } = holderData;
     Object.assign(this.traderStats[owner], {
       owner,
       data_source: 'GMGN Holder API',
@@ -615,8 +619,12 @@ export default class MetricsEngine {
       first_buy_time: holderData.native_transfer?.block_timestamp || null,
       has_holder_snapshot: true,
       last_holder_update: Date.now(),
-      ...holderData
+      ...holderDataRest
     });
+    // 新用户默认状态为"普通"（评分系统后续覆盖为"散户"/"庄家"）
+    if (!this.traderStats[owner].status) {
+      this.traderStats[owner].status = '普通';
+    }
   }
 
   updateUsersInfo(holdersArray) {

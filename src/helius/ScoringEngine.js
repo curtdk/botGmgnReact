@@ -48,14 +48,19 @@ export default class ScoringEngine {
         reasons.push('手动标记(+10)');
       }
 
-      // 基于分数阈值判断状态
+      // 基于分数阈值判断状态（三态模型）：
+      // - score >= threshold → '庄家'
+      // - score <  threshold + enable_hidden_relay + 非手动 → '普通'（需慢速评分确认）
+      // - score <  threshold + 其他情况 → '散户'（已确认零售用户）
       const isWhale = finalScore >= statusThreshold;
+      const needsSlowConfirm = !isWhale && !!config.enable_hidden_relay && !manualScores[address];
+      const status = isWhale ? '庄家' : (needsSlowConfirm ? '普通' : '散户');
 
       scoreMap.set(address, {
         score: finalScore,
         reasons,
         isWhale,
-        status: isWhale ? '庄家' : '散户'
+        status
       });
 
       if (isWhale) {

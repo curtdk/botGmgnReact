@@ -295,6 +295,11 @@ class HeliusIntegration {
     // 注入 API Key
     this.monitor.setApiKey(this.apiKey);
 
+    // 注入当前配置（防止 start() 时 EXECUTE_HOLDERS_REFRESH 还未到达导致使用默认阈值100）
+    this.monitor.setBossConfig(this.bossConfig);
+    this.monitor.setScoreThreshold(this.scoreThreshold);
+    this.monitor.setManualScores(this.manualStatusMap);
+
     // 新架构：Helius 历史 sig 获取始终启用，不受侧边栏 toggle 影响
     // toggle 原来只控制 WS，WS 已禁用，此处不再调用 setHeliusApiEnabled
 
