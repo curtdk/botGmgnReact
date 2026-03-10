@@ -116,7 +116,7 @@ const UserListItem = React.memo(({
                             <div style={{ textAlign: 'center' }}>
                                 <input
                                     type="checkbox"
-                                    checked={item.status === '庄家'}
+                                    checked={item.manualScore === '庄家'}
                                     onChange={handleCheckboxChange}
                                     onClick={e => e.stopPropagation()}
                                 />
@@ -209,12 +209,12 @@ function RecentTradesList({ trades, sigFeed, minScore, metricsUnit, solUsdtPrice
     if ((!trades || trades.length === 0) && pendingEntries.length === 0) return null;
 
     // 过滤逻辑：
-    //  - score === undefined → 未评分，默认显示（评分结果还没拿到时不应隐藏）
+    //  - score === undefined 或 score < 0（-1 初始值）→ 未评分，默认显示
     //  - score >= minScore   → 庄家，隐藏（仅当 minScore > 0 时启用此过滤）
-    //  - score < minScore    → 散户，显示
+    //  - score < minScore    → 散户/普通，显示
     // minScore === 0 时不过滤，显示全部
     const visibleTrades = minScore > 0
-        ? (trades || []).filter(t => t.score === undefined || t.score < minScore)
+        ? (trades || []).filter(t => t.score === undefined || t.score < 0 || t.score < minScore)
         : (trades || []);
 
     const timeAgo = (ts) => {
@@ -1423,6 +1423,30 @@ const App = () => {
         )}
       </div>
 
+      {/* Score< 阈值设置行 —— 始终可见，位于顶部按钮下方 */}
+      <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '4px 8px', backgroundColor: '#0d1117',
+          borderBottom: '1px solid #1f2937', fontSize: '11px',
+      }}>
+          <span style={{ color: '#9ca3af', fontSize: '11px', flexShrink: 0 }}>散户 Score &lt;</span>
+          <select
+              value={minScore}
+              onChange={e => {
+                const val = parseInt(e.target.value);
+                setMinScore(val);
+                chrome.storage.local.set({ score_threshold: val });
+              }}
+              style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: '2px', fontSize: '11px', padding: '2px' }}
+          >
+              <option value="0">全部</option>
+              {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(v => (
+                  <option key={v} value={v}>{v}</option>
+              ))}
+          </select>
+          <span style={{ color: '#6b7280', fontSize: '10px' }}>（隐藏分数≥此值的庄家交易）</span>
+      </div>
+
       {/* Mint 状态栏 */}
       {pageMint && (
           <div style={{
@@ -1620,24 +1644,6 @@ const App = () => {
 
           {/* Filter Bar & Column Settings */}
           <div style={styles.filterBar}>
-              {/* 分数筛选下拉框 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: styles.colors.textSecondary, fontSize: '11px' }}>Score&lt;</span>
-                  <select
-                      value={minScore}
-                      onChange={e => {
-                        const val = parseInt(e.target.value);
-                        setMinScore(val);
-                        chrome.storage.local.set({ score_threshold: val });
-                      }}
-                      style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: '2px', fontSize: '11px', padding: '2px' }}
-                  >
-                      <option value="0">0</option>
-                      {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(v => (
-                          <option key={v} value={v}>{v}</option>
-                      ))}
-                  </select>
-              </div>
 
               <div style={{ marginLeft: 'auto', position: 'relative' }}>
                   <button

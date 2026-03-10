@@ -303,8 +303,7 @@ export default class HeliusMonitor {
     } else {
       console.log('[Helius] Step 3.5 跳过（无账户数据）');
     }
-    // 触发慢速评分（enable_hidden_relay=true 时异步运行 detectHiddenRelays）
-    this._scheduleSlowScore();
+
 
     // ── 4大参数报告（评分后输出，filteredUsers 已生效）──
     this.metricsEngine.printCalculationReport();
@@ -314,6 +313,8 @@ export default class HeliusMonitor {
     console.log('[Helius] ✅ 初始化完成，进入实时模式');
     this._log('✅ 初始化完成，进入实时模式');
     this._fireMetricsUpdate();
+        // 触发慢速评分（enable_hidden_relay=true 时异步运行 detectHiddenRelays）
+    this._scheduleSlowScore();
   }
 
   /**
@@ -727,7 +728,8 @@ export default class HeliusMonitor {
       try {
         if (cm && stats && !cm.disabled) {
           for (const [address, data] of Object.entries(stats)) {
-            if (data.score !== undefined || data.status) {
+            // score >= 0 才视为有效评分（-1 是初始哨兵值，不保存到 DB）
+            if (data.score >= 0) {
               await cm.saveUser(address, mint, {
                 score: data.score,
                 status: data.status,
@@ -752,7 +754,7 @@ export default class HeliusMonitor {
 
       // 慢速评分统一由 _scheduleSlowScore() 调度（有 debounce，防重入）
       // 不在此直接调用 detectHiddenRelays()，避免与初始化/实时评分并行冲突
-      // this._scheduleSlowScore();
+      this._scheduleSlowScore();
 
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
@@ -1055,7 +1057,7 @@ export default class HeliusMonitor {
         //    会把 has_hidden_relay 设为 undefined，要求重新用新数据评估
         if (ud?.hiddenRelayCheckedAt && userInfo[u]?.has_hidden_relay !== undefined) return false;
 
-        if (ud?.score !== undefined) return false;  // 已有评分 → 跳过，视为已分类
+        if (ud?.score !== undefined && ud.score >= 0) return false;  // 已有有效评分（≥0）→ 跳过；-1 为初始值，仍需检测
         return true;
       });
 

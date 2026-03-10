@@ -567,6 +567,7 @@ class HeliusIntegration {
         const history = traderHistory[address] || [];
         return {
           ...stats,
+          owner: stats.owner || address,  // trade-only 用户无 holder 快照时 owner 可能为空，回退到 key
           // 优先用 trade 统计值
           ui_amount: stats.netTokenReceived !== undefined ? stats.netTokenReceived : (stats.ui_amount || 0),
           total_buy_u: stats.totalBuySol !== undefined ? stats.totalBuySol : (stats.total_buy_u || 0),

@@ -106,6 +106,10 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     }, []);
 
     const handleSave = async () => {
+        // 保存前读取最新 boss_config（防止 useEffect 回调未完成时 bossConfigRef 为空，导致其他字段被清空）
+        const freshRes = await new Promise(resolve => chrome.storage.local.get(['boss_config'], resolve));
+        const baseBossConfig = freshRes.boss_config || bossConfigRef.current || {};
+
         const keys = envKeys.split(/[\n,;]+/).map(k => k.trim()).filter(Boolean);
         const config = {
             env_keys: keys,
@@ -125,7 +129,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             auto_sync_remarks: autoSyncRemarks,
 
             boss_config: {
-                ...bossConfigRef.current,
+                ...baseBossConfig,
                 fire_thresholds: [
                     parseInt(fireThreshold1) || 100,
                     parseInt(fireThreshold2) || 200,

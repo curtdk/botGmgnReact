@@ -67,6 +67,8 @@ export default class MetricsEngine {
     this.traderStats[address] = {
       // 默认状态：评分系统后续确认为"散户"/"庄家"
       status: '普通',
+      // 初始分数 -1 表示"未评分"（0 是真实评分结果，-1 是哨兵值）
+      score: -1,
       // 全周期累计（用于参考/兼容旧逻辑）
       netSolSpent: 0,
       netTokenReceived: 0,
