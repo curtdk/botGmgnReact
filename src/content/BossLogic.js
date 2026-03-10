@@ -18,7 +18,9 @@ export default class BossLogic {
         if (!config) return { score, reasons };
 
         // 1. 无资金来源 (Funding Account 为空)
-        if (config.enable_no_source && !user.funding_account) {
+        // 必须先确认 holder 数据已加载（has_holder_snapshot=true），
+        // 否则 funding_account 为空只是"尚未获取"而非"真正无来源"
+        if (config.enable_no_source && user.has_holder_snapshot && !user.funding_account) {
             score += (config.weight_no_source || 10);
             reasons.push('无来源(+' + (config.weight_no_source || 10) + ')');
         }
@@ -121,11 +123,12 @@ export default class BossLogic {
         }
 
         // 9. 无资金来源-隐藏中转
-        // 条件1（快）：Funding Address 为空 → 直接成立
+        // 条件1（快）：holder 数据已加载且 funding_account 为空 → 直接成立
+        //   注意：has_holder_snapshot=false 时 funding_account 为空只是"未获取"，不能算无来源
         // 条件2（慢）：仅当 funding_account 存在时，由 detectHiddenRelays 检测第一笔 tx 含 Create+CloseAccount 指令
         if (config.enable_hidden_relay) {
             const w = config.weight_hidden_relay || 15;
-            if (!user.funding_account) {
+            if (user.has_holder_snapshot && !user.funding_account) {
                 score += w;
                 reasons.push(`无资金来源/中转(+${w})`);
             } else if (user.has_hidden_relay) {

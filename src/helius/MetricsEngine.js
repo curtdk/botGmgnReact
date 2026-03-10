@@ -69,6 +69,9 @@ export default class MetricsEngine {
       status: '普通',
       // 初始分数 -1 表示"未评分"（0 是真实评分结果，-1 是哨兵值）
       score: -1,
+      // holder 快照状态：false = 尚未加载 GMGN holder 数据，true = 已加载
+      // funding_account 只有在 has_holder_snapshot=true 后才可信
+      has_holder_snapshot: false,
       // 全周期累计（用于参考/兼容旧逻辑）
       netSolSpent: 0,
       netTokenReceived: 0,

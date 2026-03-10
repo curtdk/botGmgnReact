@@ -969,10 +969,10 @@ export default class HeliusMonitor {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
-          // 全部检测完成：仍是"普通"的用户升级为最终状态（非庄家→散户）
-          if (this.metricsEngine.traderStats[address].status === '普通') {
-            this.metricsEngine.traderStats[address].status = scoreData.isWhale ? '庄家' : '散户';
-          }
+          // 直接使用 calculateScores 三态结果（与 updateHolderData / _scheduleQuickScore 一致）
+          // needsSlowConfirm=true → scoreData.status='普通' → 不强制覆盖，保留等待状态
+          // needsSlowConfirm=false → scoreData.status='散户'/'庄家' → 写入最终状态
+          this.metricsEngine.traderStats[address].status = scoreData.status;
         }
       }
       // filteredUsers = score < threshold 的全部用户（含散户 + 仍是普通的用户）
@@ -1020,6 +1020,28 @@ export default class HeliusMonitor {
     return { isRelay: hasCreate && hasClose, conditions };
   }
 
+  /**
+   * 链上隐藏中转检测（慢速，异步）
+   *
+   * 职责：
+   *   对每个需要检测的用户，翻查其链上最早一笔交易，
+   *   判断是否包含 Create + CloseAccount 指令（隐藏中转特征）。
+   *   结果写入 traderStats[address].has_hidden_relay（true/false）。
+   *
+   * 与 calculateScores 的协作：
+   *   每个用户检测完毕后立即调用 calculateScores：
+   *     - 该用户 has_hidden_relay 已设 → calculateScores 正确算出最终分数和状态
+   *     - 待检测用户 has_hidden_relay 仍为 undefined → calculateScores 输出'普通'（等待中）
+   *     - 无资金来源用户 → calculateScores 直接出结果（不进入本函数检测）
+   *
+   * 跳过条件（不进入链上检测的用户）：
+   *   ⓪ 已确认为"庄家"
+   *   ① 有 holder 快照且无资金来源 → BossLogic 条件1已成立，无需链上验证
+   *   ② 已在 IndexedDB 检测过，且 has_hidden_relay 未被重置
+   *   ③ IndexedDB 中有有效评分（>=0）→ 上次已完整处理
+   *
+   * 防重入：_relayDetecting 标志位，同时只运行一个检测流程
+   */
   async detectHiddenRelays() {
     if (this._relayDetecting) return;
     this._relayDetecting = true;
@@ -1057,7 +1079,6 @@ export default class HeliusMonitor {
         //    会把 has_hidden_relay 设为 undefined，要求重新用新数据评估
         if (ud?.hiddenRelayCheckedAt && userInfo[u]?.has_hidden_relay !== undefined) return false;
 
-        if (ud?.score !== undefined && ud.score >= 0) return false;  // 已有有效评分（≥0）→ 跳过；-1 为初始值，仍需检测
         return true;
       });
 
@@ -1069,7 +1090,7 @@ export default class HeliusMonitor {
           userInfo[u].has_hidden_relay = ud.hiddenRelay;
           userInfo[u].hidden_relay_conditions = ud.hiddenRelayConditions || [];
         }
-        // 有评分但无中转检测：has_hidden_relay 保持默认 false，评分体系已覆盖
+        // 无检测记录：has_hidden_relay 保持 undefined，needsSlowConfirm=true → 等待本次 detectHiddenRelays 检测
       }
 
       if (unchecked.length === 0) {
@@ -1164,7 +1185,12 @@ export default class HeliusMonitor {
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
           }
-          // 每个用户确认后立即重打分 + 更新 filteredUsers（仅已确认散户）+ 重算4大参数
+          // ── 每个用户检测完成后立即重新打分并刷新 UI ──────────────────
+          // 此时 traderStats[address].has_hidden_relay 已写入检测结果
+          // calculateScores 内部（BossLogic规则9 + ScoringEngine三态）会自动：
+          //   • 已检测用户（has_hidden_relay !== undefined）→ 正确算分，输出'散户'/'庄家'
+          //   • 未检测用户（has_hidden_relay === undefined + funding_account 存在）→ 输出'普通'
+          //   • 无资金来源用户（funding_account 空）→ 条件1已成立，直接出结果，不需等待
           {
             const { scoreMap: fm, whaleAddresses: fw } = this.scoringEngine.calculateScores(
               this.metricsEngine.traderStats,
@@ -1173,27 +1199,17 @@ export default class HeliusMonitor {
               this.manualScores,
               this.scoreThreshold
             );
-            // 只更新已完成处理的 unchecked 用户的 status
-            // 跳过的用户（不在 unchecked，如快速确认的庄家）保持原 status 不覆盖
-            const processedSet = new Set(unchecked.slice(0, doneCount));
+            // 将 calculateScores 结果直接写入 traderStats
+            // 不再需要 processedSet / pendingAddr 循环：
+            //   calculateScores 已通过 needsSlowConfirm 逻辑自动区分"已确认"和"待确认"用户
             for (const [addr, sd] of fm.entries()) {
               if (this.metricsEngine.traderStats[addr]) {
                 this.metricsEngine.traderStats[addr].score = sd.score;
                 this.metricsEngine.traderStats[addr].score_reasons = sd.reasons;
-                if (processedSet.has(addr)) {
-                  // relay 检测已完成：非庄家确认为'散户'（不再是待确认的'普通'）
-                  this.metricsEngine.traderStats[addr].status = sd.isWhale ? '庄家' : '散户';
-                }
-              }
-            }
-            // 把仍在等待检测的用户重标为"普通"
-            for (const pendingAddr of unchecked.slice(doneCount)) {
-              if (!this.metricsEngine.traderStats[pendingAddr]?.manualScore) {
-                this.metricsEngine.traderStats[pendingAddr].status = '普通';
+                this.metricsEngine.traderStats[addr].status = sd.status;
               }
             }
             // filteredUsers = score < threshold 的全部用户（散户 + 仍待确认的普通用户）
-            // "普通"用户保留在列表，label 仍显示"普通"，确认后升级为"散户"
             const confirmedFiltered = this.filterUsersByScore(fm);
             this.metricsEngine.updateWhaleAddresses(fw);
             this.metricsEngine.setFilteredUsers(confirmedFiltered);

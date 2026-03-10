@@ -1,19 +1,40 @@
 /**
  * ScoringEngine.js
  * 评分引擎 - 负责计算用户的庄家倾向分数
- * 复用 BossLogic.js 的 8 个评分规则
+ *
+ * 核心职责：
+ *   1. 收集全量用户的统计数据（资金来源分组、时间聚类、金额分桶等）
+ *   2. 调用 BossLogic.calculateUserScore 为每个用户打分（0~N 分）
+ *   3. 基于分数和慢速检测结果，输出三态状态：
+ *      - '庄家'：分数 >= 阈值（立即确认，无需等待慢速检测）
+ *      - '普通'：分数 < 阈值，且仍需等待链上隐藏中转检测（has_hidden_relay 未知）
+ *      - '散户'：分数 < 阈值，且已确认（无资金来源/已检测完毕/手动标记/未开启慢检）
+ *
+ * 与 detectHiddenRelays 的协作关系：
+ *   - calculateScores 是纯同步计算，可随时调用
+ *   - detectHiddenRelays 是异步链上检测，完成后将 has_hidden_relay 写入 traderStats
+ *   - 每次 detectHiddenRelays 完成一个用户，立即调用 calculateScores 重新打分
+ *   - calculateScores 根据 has_hidden_relay 的存在与否自动区分"已确认"和"待确认"用户
  */
 
 import BossLogic from '../content/BossLogic.js';
 
 export default class ScoringEngine {
   /**
-   * 计算所有用户的分数
-   * @param {Object} userInfo - 用户信息对象 {address: userObj}
-   * @param {Object} traderStats - 交易统计（暂未使用）
-   * @param {Object} config - 评分配置
-   * @param {Object} manualScores - 手动标记 {address: '庄家'|'散户'}
-   * @param {number} statusThreshold - 状态判断阈值（>=阈值为庄家）
+   * 计算所有用户的分数和状态
+   *
+   * 调用时机：
+   *   - 快速评分（Step3.5、updateHolderData、_scheduleQuickScore）：基础打分，无 has_hidden_relay 数据
+   *   - 慢速评分（detectHiddenRelays 每用户完成后 + _scheduleSlowScore 末尾全量）：含检测结果打分
+   *
+   * 输出三态逻辑（详见 needsSlowConfirm 注释）：
+   *   '庄家' > '普通' > '散户'
+   *
+   * @param {Object} userInfo - 用户信息对象 {address: userObj}，userObj 含 has_hidden_relay 等字段
+   * @param {Object} traderStats - 交易统计（与 userInfo 相同对象，保留参数兼容性）
+   * @param {Object} config - 评分配置，含 enable_hidden_relay、各规则权重等
+   * @param {Object} manualScores - 手动标记 {address: '庄家'|'散户'}，手动标记优先级最高
+   * @param {number} statusThreshold - 庄家阈值（分数 >= 此值判定为庄家）
    * @returns {{ scoreMap: Map, whaleAddresses: Set, statistics: Object }}
    */
   calculateScores(userInfo, traderStats, config, manualScores = {}, statusThreshold = 50) {
@@ -48,12 +69,28 @@ export default class ScoringEngine {
         reasons.push('手动标记(+10)');
       }
 
-      // 基于分数阈值判断状态（三态模型）：
-      // - score >= threshold → '庄家'
-      // - score <  threshold + enable_hidden_relay + 非手动 → '普通'（需慢速评分确认）
-      // - score <  threshold + 其他情况 → '散户'（已确认零售用户）
+      // ── 三态状态判断 ──────────────────────────────────────────────
+      // 庄家：分数达到阈值
+      // 普通：分数未达阈值，且仍在等待链上隐藏中转检测结果
+      // 散户：分数未达阈值，且已确认（不需要检测 / 已检测完毕 / 手动标记）
+      //
+      // needsSlowConfirm（需要等待慢速检测）的完整条件：
+      //   1. 未达庄家阈值
+      //   2. 开启了隐藏中转检测（enable_hidden_relay = true）
+      //   3. 非手动标记用户（手动标记直接确认，不需等链上）
+      //   4. 非"已确认无资金来源"：confirmedNoFunding = has_holder_snapshot && !funding_account
+      //      → 已确认无来源时，BossLogic 规则9条件1已直接成立（无需链上验证）
+      //      → has_holder_snapshot=false 时，funding_account 为空只是"未获取"，不能跳过链上检测
+      //   5. 链上检测尚未完成（has_hidden_relay === undefined）
+      //      → 已检测完毕（true/false）的用户可以立即出结果，不再等待
       const isWhale = finalScore >= statusThreshold;
-      const needsSlowConfirm = !isWhale && !!config.enable_hidden_relay && !manualScores[address];
+      // 已确认无资金来源：holder 数据已加载 且 funding_account 为空
+      const confirmedNoFunding = !!user.has_holder_snapshot && !user.funding_account;
+      const needsSlowConfirm = !isWhale
+        && !!config.enable_hidden_relay
+        && !manualScores[address]
+        && !confirmedNoFunding             // 已确认无来源不需等待（规则9条件1已直接成立）
+        && user.has_hidden_relay === undefined; // 未检测过才需等待
       const status = isWhale ? '庄家' : (needsSlowConfirm ? '普通' : '散户');
 
       scoreMap.set(address, {
