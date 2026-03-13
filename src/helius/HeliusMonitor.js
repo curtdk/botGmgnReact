@@ -475,7 +475,7 @@ export default class HeliusMonitor {
     for (let i = 0; i < stillMissing.length; i += CHUNK_SIZE) {
       if (this.isStopped) return;
       const chunk = stillMissing.slice(i, i + CHUNK_SIZE);
-      const txs = await this.dataFetcher.fetchParsedTxs(chunk, this.mint);
+      const txs = await this.dataFetcher.fetchParsedTxs(chunk, this.mint, () => this.isStopped);
       if (this.isStopped) return;
       txs.forEach(tx => {
         const sig = tx.transaction.signatures[0];
@@ -575,7 +575,7 @@ export default class HeliusMonitor {
     this._fireMetricsUpdate();
 
     if (!this.signatureManager.hasData(sig)) {
-      const txs = await this.dataFetcher.fetchParsedTxs([sig], this.mint);
+      const txs = await this.dataFetcher.fetchParsedTxs([sig], this.mint, () => this.isStopped);
       if (this.isStopped) return;
       if (txs.length > 0) {
         this.signatureManager.markHasData(sig, txs[0]);
@@ -609,7 +609,7 @@ export default class HeliusMonitor {
       const txAddr = state.txData?.transaction?.message?.accountKeys?.[0]?.pubkey;
       if (txAddr && this.metricsEngine.traderStats[txAddr]?.score === undefined) {
         this._scheduleQuickScore();
-        this._scheduleSlowScore();
+        // this._scheduleSlowScore();
       }
     }
   }
@@ -697,7 +697,7 @@ export default class HeliusMonitor {
 
       if (newCount > 0) {
         this._log(`Verify: 发现 ${newCount} 条新 sig，获取 tx 数据...`);
-        const txs = await this.dataFetcher.fetchParsedTxs(newSigsToFetch, this.mint);
+        const txs = await this.dataFetcher.fetchParsedTxs(newSigsToFetch, this.mint, () => this.isStopped);
         if (this.isStopped) return;
 
         for (const tx of txs) {
@@ -748,11 +748,17 @@ export default class HeliusMonitor {
     clearTimeout(this.reconnectTimeout);
     clearInterval(this.progressInterval);
     clearTimeout(this.verifyInterval);   // verifyInterval 现在是 setTimeout 返回值
+    clearTimeout(this._slowScoreTimer);
+    clearTimeout(this._slowScoreRepeatTimer);
+    clearTimeout(this._quickScoreTimer);
 
     this.pingInterval = null;
     this.reconnectTimeout = null;
     this.progressInterval = null;
     this.verifyInterval = null;
+    this._slowScoreTimer = null;
+    this._slowScoreRepeatTimer = null;
+    this._quickScoreTimer = null;
 
     this.onGmgnDataLoaded = null;
     this.onMetricsUpdate = null;
@@ -818,7 +824,7 @@ export default class HeliusMonitor {
 
       // 慢速评分统一由 _scheduleSlowScore() 调度（有 debounce，防重入）
       // 不在此直接调用 detectHiddenRelays()，避免与初始化/实时评分并行冲突
-      this._scheduleSlowScore();
+      // this._scheduleSlowScore();
 
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
@@ -1110,6 +1116,13 @@ export default class HeliusMonitor {
           manualScore: info.manualScore,
         }))
       );
+      // ── 自循环：完成后 1 秒再次触发（持续检测新加入用户）──
+      if (!this.isStopped) {
+        clearTimeout(this._slowScoreRepeatTimer);
+        this._slowScoreRepeatTimer = setTimeout(() => {
+          if (!this.isStopped) this._scheduleSlowScore();
+        }, 1000);
+      }
     }, 500); // 500ms 防抖，与 quickScore 对齐，更快触发慢速检测
   }
 
@@ -1261,6 +1274,8 @@ export default class HeliusMonitor {
             // [调试] 输出最旧的 sig，方便复查
             console.log(`[中转检测-sig] ${shortAddr} 最旧sig: ${oldestSig}`);
 
+            if (this.isStopped) return; // 停止检查：getTransaction 前
+
             const tx = await this.dataFetcher.call('getTransaction', [
               oldestSig,
               { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
@@ -1301,7 +1316,7 @@ export default class HeliusMonitor {
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
           }
-          // ── 每个用户检测完成后立即重新打分并刷新 UI ──────────────────
+          if (this.isStopped) return; // 停止检查：用户完成后、打分前
           // 此时 traderStats[address].has_hidden_relay 已写入检测结果
           // calculateScores 内部（BossLogic规则9 + ScoringEngine三态）会自动：
           //   • 已检测用户（has_hidden_relay !== undefined）→ 正确算分，输出'散户'/'庄家'

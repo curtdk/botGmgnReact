@@ -435,7 +435,7 @@ class HeliusIntegration {
       );
       if (hasUnscored) {
         this.monitor._scheduleQuickScore(); // 快速评分：500ms debounce，BossLogic 同步
-        this.monitor._scheduleSlowScore();  // 慢速评分：3s debounce，含 detectHiddenRelays
+        // this.monitor._scheduleSlowScore();  // 慢速评分：3s debounce，含 detectHiddenRelays
       }
     }
   }

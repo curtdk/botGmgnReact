@@ -191,7 +191,41 @@ EXECUTE_TRADES_REFRESH
 数据流日志
 
 
-
+/**
+   * 批量获取交易详情（并发5路）
+   * @param {string[]} signatures
+   * @param {string} mintAddress - 用于缓存分类
+   * @returns {Array} 成功获取的交易数组
+   */
+  async fetchParsedTxs(signatures, mintAddress) {
+    const CONCURRENCY = 5;
+    const allTxs = [];
+    for (let i = 0; i < signatures.length; i += CONCURRENCY) {
+      const batch = signatures.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(batch.map(async (sig) => {
+        try {
+          const result = await this.call("getTransaction", [
+            sig,
+            { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }
+          ]);
+          if (result && mintAddress && this.cacheManager) {
+            this.cacheManager.saveTransaction(sig, mintAddress, result).catch(() => {
+            });
+            this.cacheManager.updateSigStatus(sig, { hasData: true }).catch(() => {
+            });
+          }
+          return result;
+        } catch (err) {
+          return null;
+        }
+      }));
+      allTxs.push(...results.filter(Boolean));
+      if (i + CONCURRENCY < signatures.length) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    return allTxs;
+  }
 
 
 

@@ -256,11 +256,14 @@ export default class DataFetcher {
    * @param {string} mintAddress - 用于缓存分类
    * @returns {Array} 成功获取的交易数组
    */
-  async fetchParsedTxs(signatures, mintAddress) {
+  async fetchParsedTxs(signatures, mintAddress, isStopped = null) {
     const CONCURRENCY = 5;
     const allTxs = [];
 
     for (let i = 0; i < signatures.length; i += CONCURRENCY) {
+      // 停止检查：每批次开始前检查
+      if (isStopped && isStopped()) return allTxs;
+
       const batch = signatures.slice(i, i + CONCURRENCY);
 
       const results = await Promise.all(batch.map(async (sig) => {
@@ -278,11 +281,18 @@ export default class DataFetcher {
           }
           return result;
         } catch (err) {
+          console.error(
+            `%c[Helius API 网络错误] fetchParsedTxs 获取 tx 失败 sig=${sig.slice(0, 16)}... | ${err.message}`,
+            'color: red; font-weight: bold'
+          );
           return null;
         }
       }));
 
       allTxs.push(...results.filter(Boolean));
+
+      // 停止检查：批次完成后再检查一次
+      if (isStopped && isStopped()) return allTxs;
 
       // 避免限流
       if (i + CONCURRENCY < signatures.length) {

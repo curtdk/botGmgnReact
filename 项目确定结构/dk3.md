@@ -22,3 +22,6 @@ traderStats 实时聚合:getMetrics
     _scheduleQuickScore   是否确认  散户   快评分 calculateScores
     _scheduleSlowScore    只对 普通 用户 处理 慢评分  detectHiddenRelays
 
+helius api 获取 tx :  fetchParsedTxs  后期要修改为 批量 当前是一次一个
+
+
