@@ -1,0 +1,4 @@
+发现一个问题    const fetchResult = await this._fetchSigsStreaming();执行  untilSig = latest.signature; 每次都是 继续往后执行。
+网页第二次刷新 这些参数 显示的都是最近一次获取的最新的数据 （处理 0/100 ✓ Sig100） 计算也是从 
+signatureManager计算  这样 4带参数 计算 是不是 可能就得不到 完整的数据 。 
+我想到的完善方法 就是 每次点击 插件 页面 开始按钮 untilSig = latest.signature;  都是空 从新开始获取 

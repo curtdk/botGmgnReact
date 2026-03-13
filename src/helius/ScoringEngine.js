@@ -39,7 +39,12 @@ export default class ScoringEngine {
    */
   calculateScores(userInfo, traderStats, config, manualScores = {}, statusThreshold = 50) {
 
-    // 阶段 1: 收集统计数据
+    // ── 阶段 1: 收集全局统计数据 ─────────────────────────────────────────
+    // collectStatistics 遍历所有用户，建立：
+    //   · fundingGroups  : 资金来源 → [用户列表]（用于"同资金来源"规则）
+    //   · timeGroups     : 入金时间列表（用于"时间聚类"规则）
+    //   · amountBuckets  : 买入金额分桶（用于"金额相似"规则）
+    //   · balanceBuckets : SOL 余额分桶（用于"余额相似"规则）
     const stats = this.collectStatistics(userInfo, config);
 
     // 调试：显示第一个用户的信息
@@ -57,12 +62,19 @@ export default class ScoringEngine {
     const maxDetailLog = 3;
 
     for (const [address, user] of Object.entries(userInfo)) {
-      // 基础分数（来自 BossLogic 规则）
+      // ── 阶段 2a: 调用 BossLogic 计算基础分 ──────────────────────────
+      // BossLogic.calculateUserScore 依次检查各规则：
+      //   规则1 无资金来源: 有holder快照且无funding_account → +weight
+      //   规则2 同资金来源: fundingGroups.get(addr).length >= N → +weight
+      //   规则3 时间聚类:  在时间窗口内有 >= N 个用户同时入金 → +weight
+      //   规则9 隐藏中转:  has_hidden_relay === true → +weight
+      //   ... 等其他规则
       const { score, reasons } = BossLogic.calculateUserScore(
         user, stats, config
       );
 
-      // 手动标记加 10 分
+      // ── 阶段 2b: 手动标记叠加 ────────────────────────────────────────
+      // 手动标记为"庄家"额外加 10 分，确保超过阈值
       let finalScore = score;
       if (manualScores[address] === '庄家') {
         finalScore += 10;
@@ -115,6 +127,50 @@ export default class ScoringEngine {
         detailCount++;
       }
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 【calculateScores 完成 · 全量用户评分汇总】
+    //   在每次 calculateScores 调用结束时，输出所有用户的：
+    //   · 地址（缩写）
+    //   · 最终分数（finalScore = BossLogic基础分 + 手动标记+10）
+    //   · 状态（'庄家' / '普通' / '散户'）
+    //   · 触发的评分规则列表（reasons[]）
+    //   · 是否需要等待链上慢速检测（needsSlowConfirm）
+    // ════════════════════════════════════════════════════════════════════════
+    {
+      const W = 64;
+      const total     = scoreMap.size;
+      const whaleN    = whaleAddresses.size;
+      const normalN   = total - whaleN;
+
+      // 按分数降序排列，庄家在前
+      const sorted = [...scoreMap.entries()].sort((a, b) => b[1].score - a[1].score);
+
+      const lines = [
+        `\n╔${'═'.repeat(W)}╗`,
+        `║  【calculateScores · 全量评分完成】  总用户=${total}  庄家=${whaleN}  非庄家=${normalN}`,
+        `╚${'═'.repeat(W)}╝`,
+      ];
+
+      sorted.forEach(([addr, sd], idx) => {
+        const short    = `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+        const statusTag = sd.isWhale ? '⛔ 庄家' : (sd.status === '普通' ? '⏳ 普通' : '✅ 散户');
+        const reasonList = (sd.reasons || []).length > 0
+          ? (sd.reasons || []).map(r => `        • ${r}`).join('\n')
+          : '        • 无触发规则';
+
+        lines.push(
+          `  [${String(idx + 1).padStart(2, '0')}] ${short}`,
+          `       ${statusTag}  分数=${String(sd.score).padStart(4)}`,
+          `       评分原因:`,
+          reasonList
+        );
+      });
+
+      lines.push(`\n${'═'.repeat(W + 2)}  calculateScores 结束\n`);
+      console.log(lines.join('\n'));
+    }
+    // ════════════════════════════════════════════════════════════════════════
 
     return { scoreMap, whaleAddresses, statistics: stats };
   }

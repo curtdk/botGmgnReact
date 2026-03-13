@@ -98,6 +98,17 @@ export default class MetricsEngine {
   // 交易处理入口
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 统一交易处理入口：根据 txWrapper.type 路由到对应处理函数
+   *
+   * 数据来源有三种格式：
+   *   · type='gmgn'   → GMGN API 返回的分页交易数据（含 maker/event/quote_amount/base_amount）
+   *   · type='helius' → Helius RPC parsedTransaction 格式（含 meta.preBalances 等）
+   *   · 无 type 字段  → 旧版兼容，直接按 Helius 格式处理
+   *
+   * @param {Object} txWrapper  - { type, data } 或直接传入 Helius tx 对象
+   * @param {string} mintAddress - 当前监控的代币 mint 地址
+   */
   processTransaction(txWrapper, mintAddress) {
     if (!txWrapper) return;
 
@@ -124,6 +135,20 @@ export default class MetricsEngine {
   // Helius 格式交易处理
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 处理 Helius RPC 返回的 parsedTransaction 格式
+   *
+   * 解析步骤：
+   *   1. 读取 meta.err → 链上失败交易直接跳过
+   *   2. accountKeys[0].pubkey → feePayer（付款人/交易发起方）
+   *   3. SOL 变化 = (postBalance - preBalance) / 1e9 + fee
+   *      · 负值 = 买入（花费 SOL）
+   *      · 正值 = 卖出（收到 SOL）
+   *   4. Token 变化 = postTokenBalance - preTokenBalance
+   *      · 正值 = 买入（收到 Token）
+   *      · 负值 = 卖出（付出 Token）
+   *   5. 调用 updateTraderState 更新用户轮次和4大参数
+   */
   processHeliusTransaction(tx, mintAddress) {
     if (!tx || !tx.transaction) return;
 
@@ -179,6 +204,20 @@ export default class MetricsEngine {
   // GMGN 格式交易处理
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 处理 GMGN API 分页接口返回的交易数据（token_trades 格式）
+   *
+   * 字段映射：
+   *   · maker        → 用户钱包地址（feePayer）
+   *   · event        → 'buy' | 'sell'
+   *   · quote_amount → SOL 数量（字符串，需 parseFloat）
+   *   · base_amount  → Token 数量（字符串，需 parseFloat）
+   *   · timestamp    → Unix 时间戳（秒）
+   *
+   * SOL/Token 符号约定（与 Helius 格式统一）：
+   *   · 买入: solChange < 0（花出SOL）, tokenChange > 0（收到Token）
+   *   · 卖出: solChange > 0（收到SOL）, tokenChange < 0（付出Token）
+   */
   processGmgnTransaction(trade, _mintAddress) {
     if (!trade) return;
 
@@ -220,6 +259,30 @@ export default class MetricsEngine {
   // 核心：更新用户状态 + 轮次追踪
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 核心方法：根据单笔交易的 SOL/Token 变化，更新用户的交易统计和持仓轮次。
+   *
+   * 轮次（Round）追踪规则：
+   *   · 每次买入：累加 currentRound.buySOL、txCount；首次买入记录 openTime
+   *   · 每次卖出：累加 currentRound.sellSOL、txCount
+   *   · 清仓判断：卖出后 netTokenReceived < 1 → 视为清仓，关闭当前轮次：
+   *       - 将 currentRound 压入 completedRounds[]
+   *       - 本轮 net = sellSOL - buySOL（正=盈利，负=亏损）
+   *       - 累加 totalHistoricalNetFlow
+   *       - 重置 currentRound = {buySOL:0, sellSOL:0, txCount:0, openTime:null}
+   *
+   * 跳过条件（return 不处理）：
+   *   · solChange 和 tokenChange 同号或接近 0：非标准 swap，跳过
+   *   · 用户在 whaleAddresses 中：庄家地址，由上层调用方负责过滤
+   *
+   * @param {string} user         - 钱包地址
+   * @param {number} solChange    - SOL 净变化（负=买入，正=卖出）
+   * @param {number} tokenChange  - Token 净变化（正=买入，负=卖出）
+   * @param {string} signature    - 交易签名
+   * @param {string} timestamp    - 格式化时间字符串
+   * @param {string} source       - 数据来源（'GMGN API' / 'Helius API' 等）
+   * @param {number} rawTimestamp - Unix 毫秒时间戳
+   */
   updateTraderState(user, solChange, tokenChange, signature, timestamp = '未知', source = '未知', rawTimestamp = Date.now()) {
     if (!this.traderStats[user]) {
       this._initTrader(user);
@@ -305,12 +368,137 @@ export default class MetricsEngine {
     if (this.recentTrades.length > 300) {
       this.recentTrades.length = 300;
     }
+
+    // ════════════════════════════════════════════════════════════════
+    // 【新交易入库日志】每笔交易处理完毕后输出：
+    //   · 用户历史持仓轮次（completedRounds）
+    //   · 用户当前持仓轮次（currentRound）
+    //   · 全局 4大参数 实时快照 + 计算规则说明
+    // ════════════════════════════════════════════════════════════════
+    {
+      const D = '─'.repeat(58);
+      const addrShort = `${user.slice(0, 8)}...${user.slice(-6)}`;
+      const solStr = Math.abs(solChange).toFixed(6);
+      const tokenStr = Math.abs(tokenChange).toFixed(0);
+
+      // 当前最新的 round（可能已被关闭并重置）
+      const updatedRound = stats.currentRound;
+      const hist = stats.completedRounds;
+
+      // ── 历史持仓轮次明细 ──
+      let histLines;
+      if (hist.length === 0) {
+        histLines = '    （首次参与，无历史清仓记录）';
+      } else {
+        histLines = hist.map((r, i) =>
+          `    历史轮${i + 1}: ` +
+          `买入=${r.buySOL.toFixed(6)} SOL  卖出=${r.sellSOL.toFixed(6)} SOL  ` +
+          `净流水=${r.netFlow >= 0 ? '+' : ''}${r.netFlow.toFixed(6)} SOL  ` +
+          `交易次数=${r.txCount}`
+        ).join('\n');
+        histLines += `\n    历史净流水合计: ${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(6)} SOL`;
+      }
+
+      // ── 当前持仓轮次 ──
+      let curLine;
+      if (updatedRound.buySOL === 0 && updatedRound.txCount === 0) {
+        curLine = '    （已清仓，当前无持仓轮次）';
+      } else {
+        const netCost = updatedRound.buySOL - updatedRound.sellSOL;
+        curLine =
+          `    买入=${updatedRound.buySOL.toFixed(6)} SOL  ` +
+          `卖出=${updatedRound.sellSOL.toFixed(6)} SOL  ` +
+          `净成本=${netCost.toFixed(6)} SOL  ` +
+          `交易次数=${updatedRound.txCount}`;
+      }
+
+      // ── 全局 4大参数 快照（遍历所有已知用户，忽略庄家地址）──
+      let snapYiLuDai = 0;    // 已落袋
+      let snapXiazhu = 0;     // 本轮下注
+      let snapNetFlow = 0;    // 持仓用户当前净流水（负值）
+      let snapActiveCount = 0;
+      let snapExitedCount = 0;
+      for (const [addr, s] of Object.entries(this.traderStats)) {
+        if (this.whaleAddresses.has(addr)) continue;
+        // filteredUsers 非空时只统计在列表内的用户（评分后才过滤）
+        if (this.filteredUsers.size > 0 && !this.filteredUsers.has(addr)) continue;
+        if (s.totalHistoricalNetFlow !== 0) {
+          snapYiLuDai += s.totalHistoricalNetFlow;
+          snapExitedCount += s.completedRounds.length;
+        }
+        const r = s.currentRound;
+        if (r.buySOL > 0 || r.txCount > 0) {
+          snapXiazhu  += r.buySOL - r.sellSOL;
+          snapNetFlow += r.sellSOL - r.buySOL;
+          snapActiveCount++;
+        }
+      }
+      const snapFuYing   = snapYiLuDai + snapNetFlow;
+      const snapChengBen = snapXiazhu - snapYiLuDai;
+
+      console.log(
+        `\n╔${'═'.repeat(60)}╗\n` +
+        `║ 【新交易入库】 ${addrShort}  ${action}  ${solStr} SOL / ${tokenStr} Token\n` +
+        `╠${'═'.repeat(60)}╣\n` +
+        `║ sig: ${(signature || '?').slice(0, 30)}...  来源: ${source}\n` +
+        `║ 时间: ${timestamp}\n` +
+        `╚${'═'.repeat(60)}╝\n` +
+        `${D}\n` +
+        `  ▶ 用户历史持仓（已完结轮次，共 ${hist.length} 轮）\n` +
+        `${histLines}\n` +
+        `${D}\n` +
+        `  ▶ 用户当前持仓轮次\n` +
+        `${curLine}\n` +
+        `${D}\n` +
+        `  ▶ 全局 4大参数 实时快照\n` +
+        `    计算规则:\n` +
+        `      本轮下注 = Σ( 当前轮买入 - 当前轮卖出 ) for 所有持仓用户（${snapActiveCount}人）\n` +
+        `      已落袋   = Σ( 历史轮次净流水 ) for 所有历史清仓用户（${snapExitedCount}轮）\n` +
+        `      浮盈浮亏 = 已落袋 + Σ( 当前轮卖出 - 当前轮买入 ) for 持仓用户\n` +
+        `               = 已落袋 - 本轮下注（持仓用户净流出视角）\n` +
+        `      本轮成本 = 本轮下注 - 已落袋\n` +
+        `    ──────────────────────────────────────────\n` +
+        `    本轮下注 = ${snapXiazhu.toFixed(6)} SOL\n` +
+        `    已落袋   = ${snapYiLuDai >= 0 ? '+' : ''}${snapYiLuDai.toFixed(6)} SOL\n` +
+        `    浮盈浮亏 = ${snapFuYing >= 0 ? '+' : ''}${snapFuYing.toFixed(6)} SOL\n` +
+        `    本轮成本 = ${snapChengBen.toFixed(6)} SOL\n` +
+        `${'═'.repeat(60)}`
+      );
+    }
+    // ════════════════════════════════════════════════════════════════
   }
 
   // ─────────────────────────────────────────────────────────
   // 四大指标计算
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 实时计算四大指标并返回 metrics 对象。
+   *
+   * 计算逻辑（只统计 filteredUsers 且不在 whaleAddresses 中的用户）：
+   *
+   *   ① 已落袋 (yiLuDai):
+   *      = Σ user.totalHistoricalNetFlow
+   *      totalHistoricalNetFlow 在每次轮次关闭（清仓）时累加 (sellSOL - buySOL)
+   *
+   *   ② 本轮下注 (benLunXiaZhu):
+   *      = Σ (currentRound.buySOL - currentRound.sellSOL)  for 持仓用户
+   *      持仓用户 = currentRound.buySOL > 0 || currentRound.txCount > 0
+   *
+   *   ③ 浮盈浮亏 (fuYingFuKui):
+   *      = yiLuDai + Σ(currentRound.sellSOL - currentRound.buySOL) for 持仓用户
+   *      = yiLuDai - benLunXiaZhu （持仓用户净流出 = -本轮下注）
+   *
+   *   ④ 本轮成本 (benLunChengBen):
+   *      = benLunXiaZhu - yiLuDai
+   *
+   * 过滤规则：
+   *   · filteredUsers 非空时：只统计在 filteredUsers 中的地址（score < 阈值）
+   *   · filteredUsers 为空时：统计全部用户（初始化完成前的过渡状态）
+   *   · whaleAddresses 中的地址：始终排除
+   *
+   * @returns {Object} 含 yiLuDai / benLunXiaZhu / benLunChengBen / floatingPnL 等字段
+   */
   getMetrics() {
     let yiLuDai = 0;        // 已落袋 = Σ历史轮次净流水
     let benLunXiaZhu = 0;   // 本轮下注 = Σ(当前轮次买入 - 当前轮次卖出) for 持仓用户
@@ -364,11 +552,34 @@ export default class MetricsEngine {
     if (this.lastMetricsLog !== metricsKey || now - this.lastMetricsLogTime > 5000) {
       this.lastMetricsLog = metricsKey;
       this.lastMetricsLogTime = now;
+      // ── 汇总计算式：各用户数值拼成加法式 ──
+      // logXiaZhu 每项格式: "addr: buy=X - sell=Y = 净成本Z"，提取净成本值
+      const xiaZhuTerms = logXiaZhu.map(l => {
+        const addr = l.split(':')[0].trim();
+        const m = l.match(/净成本(-?[\d.]+)/);
+        return m ? `${addr}(${parseFloat(m[1]) >= 0 ? '+' : ''}${parseFloat(m[1]).toFixed(4)})` : addr;
+      });
+      const xiaZhuFormula = xiaZhuTerms.length > 0
+        ? xiaZhuTerms.join(' + ') + ` = ${benLunXiaZhu.toFixed(4)} SOL`
+        : `(无持仓用户) = 0.0000 SOL`;
+
+      // logYiLuDai 每项末行含 "小计=±X SOL"，提取小计值
+      const yiLuDaiTerms = logYiLuDai.map(l => {
+        const addr = l.split(':')[0].trim();
+        const m = l.match(/小计=([+\-]?[\d.]+)/);
+        return m ? `${addr}(${m[1]})` : addr;
+      });
+      const yiLuDaiFormula = yiLuDaiTerms.length > 0
+        ? yiLuDaiTerms.join(' + ') + ` = ${yiLuDai >= 0 ? '+' : ''}${yiLuDai.toFixed(4)} SOL`
+        : `(无历史清仓) = 0.0000 SOL`;
+
       const detail = [
         `【本轮下注】${benLunXiaZhu.toFixed(4)} SOL（${activeCount}人持仓）`,
         ...logXiaZhu.map(l => '  ' + l),
+        `  ↳ 汇总式: ${xiaZhuFormula}`,
         `【已落袋】${yiLuDai.toFixed(4)} SOL（${exitedRoundsCount}轮历史）`,
         ...logYiLuDai,
+        `  ↳ 汇总式: ${yiLuDaiFormula}`,
         `【浮盈浮亏】已落袋(${yiLuDai.toFixed(4)}) + 当前净流水(${currentNetFlow.toFixed(4)}) = ${fuYingFuKui.toFixed(4)} SOL`,
         `【本轮成本】本轮下注(${benLunXiaZhu.toFixed(4)}) - 已落袋(${yiLuDai.toFixed(4)}) = ${benLunChengBen.toFixed(4)} SOL`,
       ].join('\n');
@@ -496,6 +707,40 @@ export default class MetricsEngine {
   // ─────────────────────────────────────────────────────────
 
   printCalculationReport() {
+    // ════════════════════════════════════════════════════════════════════════
+    // 【历史计算完整报告】在 Step3 全量历史计算结束后输出一次
+    //   Part 0: 4大参数 计算规则说明
+    //   Part 1: 全部参与计算的 trades 列表（时序从旧到新）
+    //   Part 2: 各账户历史持仓 + 当前持仓状态
+    //   Part 3: 4大参数 完整计算明细
+    // ════════════════════════════════════════════════════════════════════════
+    console.log(
+      `\n╔${'═'.repeat(68)}╗\n` +
+      `║  【4大参数 · 历史计算完整报告】\n` +
+      `╠${'═'.repeat(68)}╣\n` +
+      `║  计算规则说明（v2 轮次追踪体系）:\n` +
+      `║\n` +
+      `║  ① 本轮下注 = Σ( 当前轮买入SOL - 当前轮卖出SOL )  for 所有持仓用户\n` +
+      `║              = 散户当前轮次的净资金投入量（正值=净买入）\n` +
+      `║\n` +
+      `║  ② 已落袋   = Σ( 历史轮次净流水 )  for 所有历史已清仓的轮次\n` +
+      `║              = Σ( sellSOL - buySOL )  每完成一轮累加一次\n` +
+      `║              > 0 : 该轮整体盈利（卖多买少）\n` +
+      `║              < 0 : 该轮整体亏损（买多卖少）\n` +
+      `║\n` +
+      `║  ③ 浮盈浮亏 = 已落袋 + Σ( 当前轮卖出 - 当前轮买入 )  for 持仓用户\n` +
+      `║              = 已落袋 - 本轮下注  （持仓用户净流出 = -本轮下注）\n` +
+      `║              > 0 : 整体处于盈利状态\n` +
+      `║              < 0 : 整体处于亏损状态\n` +
+      `║\n` +
+      `║  ④ 本轮成本 = 本轮下注 - 已落袋\n` +
+      `║              = 持仓用户的净持仓成本（扣除历史盈利/亏损后的真实投入）\n` +
+      `║\n` +
+      `║  过滤规则: score >= 阈值 → 判定为庄家，不计入4大参数\n` +
+      `║            filteredUsers 为空时统计全部用户\n` +
+      `╚${'═'.repeat(68)}╝\n`
+    );
+
     // ── Part 1：全部参与计算的 trades（按时间顺序从旧到新）──
     const allTrades = [];
     for (const [addr, history] of Object.entries(this.traderHistory)) {

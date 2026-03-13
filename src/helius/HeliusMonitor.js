@@ -97,7 +97,7 @@ export default class HeliusMonitor {
    * 等待 GMGN 首次分页加载完成，超时后自动继续
    * @param {number} timeoutMs 最长等待毫秒数，默认 60s
    */
-  async _waitForGmgnFirstLoad(timeoutMs = 60000) {
+  async _waitForGmgnFirstLoad(timeoutMs = 30000) {
     const timeoutPromise = new Promise(resolve => setTimeout(resolve, timeoutMs));
     await Promise.race([this._gmgnFirstLoadPromise, timeoutPromise]);
   }
@@ -141,6 +141,15 @@ export default class HeliusMonitor {
   // 启动
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 启动入口：初始化 IndexedDB → 加载手动标记 → 异步启动 Helius 初始化任务
+   *
+   * 关键设计：
+   *   · start() 本身很快返回（只做 IndexedDB 初始化和手动标记加载）
+   *   · Helius 历史 sig 获取（_runHeliusInitTask）在后台异步执行
+   *   · GMGN 数据（trades/holders）可以在初始化未完成时就流入 SignatureManager
+   *   · heliusApiEnabled=false 时，跳过 Helius API 请求，直接进入实时模式
+   */
   async start() {
     this._log(`启动中... mint=${this.mint.slice(0, 8)}...`);
     console.log(`[Helius] 启动 mint=${this.mint.slice(0, 8)}...`);
@@ -189,12 +198,34 @@ export default class HeliusMonitor {
     console.log('[Helius] ── Step 1: 获取全部历史 sig ──');
     this._log('Step 1: 获取历史 sig 中...');
 
-    // if (!this.heliusApiEnabled) {
-    //   console.log('[Helius] heliusApiEnabled=false，跳过 Helius 历史 sig 获取，直接进入实时模式');
-    //   this._log('Helius API 未启用，直接进入实时模式');
-    //   this.isInitialized = true;
-    //   return;
-    // }
+    if (!this.heliusApiEnabled) {
+      console.log('[Helius] heliusApiEnabled=false，跳过 Helius 历史 sig 获取，直接进入实时模式');
+      this._log('Helius API 未启用，直接进入实时模式');
+      this.isInitialized = true;
+      return;
+    }
+
+    // ── Step 0: 从 IndexedDB 预加载历史缓存 sig 到 SignatureManager ──
+    // 确保第二次及以后启动时，完整历史 sig 进入 SignatureManager
+    // fetchMissingTransactions 会从缓存/API 补全这些 sig 的 tx 数据
+    // 安全性：addSignature 基于 Map 去重，同一 sig 只有一条记录，不会被重复计算
+    const cachedSigRecords = await this.cacheManager.loadSigsByMint(this.mint);
+    if (cachedSigRecords.length > 0) {
+      for (const record of cachedSigRecords) {
+        this.signatureManager.addSignature(
+          {
+            signature:  record.signature,
+            slot:       record.slot       || 0,
+            blockTime:  record.blockTime  || 0,
+            blockIndex: record.blockIndex || 0
+          },
+          'initial'
+        );
+      }
+      console.log(`[Helius] Step 0 ✓ 从缓存预加载 ${cachedSigRecords.length} 条历史 sig`);
+      this._log(`Step 0: 缓存预加载 ${cachedSigRecords.length} 条历史 sig`);
+    }
+    if (this.isStopped) return;
 
     const fetchResult = await this._fetchSigsStreaming();
     if (this.isStopped) return;
@@ -212,7 +243,7 @@ export default class HeliusMonitor {
     // 目的：确保 GMGN 数据已注入 SignatureManager，Step 2 补全时优先用 GMGN 数据
     console.log('[Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──');
     this._log('等待 GMGN 首次数据加载...');
-    // await this._waitForGmgnFirstLoad(60000);
+    await this._waitForGmgnFirstLoad(30000);
     // if (this.isStopped) return;
     const gmgnStats = this.signatureManager.getStats();
     console.log(`[Helius] ✓ GMGN 数据已就绪，SignatureManager 当前 sig 总数=${gmgnStats.total} 有数据=${gmgnStats.withData}`);
@@ -515,6 +546,20 @@ export default class HeliusMonitor {
   // 实时处理新 sig
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 实时新交易处理（来自 WebSocket / GMGN 实时推送）
+   *
+   * 执行流程：
+   *   1. 无论是否已初始化，先将 sig 加入 SignatureManager（保证不丢失）
+   *   2. 初始化未完成（isInitialized=false）→ 直接返回，等初始化完成后再统一处理
+   *   3. 已处理过的 sig（历史数据中已有） → 跳过，不重复处理
+   *   4. 加入 sigFeed（UI 实时列表，pending 状态占位）→ 触发 UI 刷新
+   *   5. 如果没有 tx 详情，调用 dataFetcher.fetchParsedTxs 从 Helius 获取
+   *   6. 调用 metricsEngine.processTransaction 更新4大参数
+   *   7. 标记 sig 为 isProcessed=true，持久化到 IndexedDB
+   *   8. 触发 _scheduleQuickScore / _scheduleSlowScore（新用户需要评分）
+   *   9. 更新 sigFeed 条目状态 → 触发 UI 刷新
+   */
   async handleNewSignature(sig, source) {
     if (this.isStopped) return;
 
@@ -748,6 +793,25 @@ export default class HeliusMonitor {
   // Holder 数据更新 + 评分
   // ─────────────────────────────────────────────────────────
 
+  /**
+   * 处理 EXECUTE_HOLDERS_REFRESH 获取的持有者列表数据
+   *
+   * 调用链：
+   *   content/index.jsx EXECUTE_HOLDERS_REFRESH → HeliusIntegration.updateGmgnHolders()
+   *   → 本方法 updateHolderData(holders)
+   *
+   * 执行步骤：
+   *   1. metricsEngine.updateUsersInfo(holders)：
+   *      将 holder 数据合并到 traderStats（补全 funding_account、holding_share_pct 等字段）
+   *      新用户初始化为 has_holder_snapshot=false → 合并后变为 true
+   *   2. _scheduleSlowScore()：
+   *      如果开启了 enable_hidden_relay，3s 后异步触发链上中转检测（防重入 debounce）
+   *   3. scoringEngine.calculateScores()：
+   *      同步快速评分，得到 scoreMap（address → {score, reasons, status}）
+   *   4. 更新 traderStats 中的 score/status/score_reasons
+   *   5. 更新 filteredUsers（score < 阈值的用户），影响4大参数计算
+   *   6. recalculateMetrics → _fireMetricsUpdate → UI 刷新
+   */
   async updateHolderData(holders) {
     try {
       this.metricsEngine.updateUsersInfo(holders);
@@ -810,29 +874,41 @@ export default class HeliusMonitor {
   }
 
   /**
-   * 打印评分结果汇总：哪些用户在/不在 4大参数，各自的分数来源
+   * 评分结果完整输出：
+   *   - 分组展示 散户/普通（参与4大参数）vs 庄家（排除）vs 未评分
+   *   - 每个用户逐行列出：地址、分数、状态、每条评分原因
+   *   - 开始和结束均有明显表头边框
+   *
+   * @param {string}  phase          评分阶段名称（'快速'/'慢速'/等）
+   * @param {Map}     scoreMap       用户 → { score, reasons[], isWhale, status }
+   * @param {Set}     filteredUsers  参与4大参数的用户地址集合（score < threshold）
+   * @param {Set}     whaleAddresses 庄家地址集合
    */
   _logScoringResult(phase, scoreMap, filteredUsers, whaleAddresses) {
-    const stats = this.metricsEngine.traderStats;
-    const allUsers = Object.keys(stats);
+    const traderStats = this.metricsEngine.traderStats;
+    const allUsers    = Object.keys(traderStats);
+    const W = 66;   // 边框宽度
 
-    // 分组
-    const inMetrics  = [];  // 参与 4大参数（散户）
-    const excluded   = [];  // 不参与（庄家 or 超阈值）
-    const unscored   = [];  // 无评分
+    // ── 将所有用户分为三组 ────────────────────────────────────────────
+    // inMetrics : score < 阈值，参与4大参数（散户/普通）
+    // excluded  : score >= 阈值，庄家，不参与4大参数
+    // unscored  : scoreMap 中没有条目（理论上不应出现）
+    const inMetrics  = [];
+    const excluded   = [];
+    const unscored   = [];
 
     for (const addr of allUsers) {
-      const sd   = scoreMap.get(addr);
-      const short = `${addr.slice(0, 6)}..${addr.slice(-4)}`;
+      const sd = scoreMap.get(addr);
       if (!sd) {
-        unscored.push(short);
+        unscored.push(addr);
         continue;
       }
       const entry = {
-        addr: short,
-        score: sd.score,
-        status: sd.status,
-        reasons: (sd.reasons || []).join(', ') || '无',
+        addr,
+        short:   `${addr.slice(0, 10)}...${addr.slice(-8)}`,
+        score:   sd.score,
+        status:  sd.status,
+        reasons: sd.reasons || [],
         isWhale: whaleAddresses.has(addr)
       };
       if (filteredUsers.has(addr)) {
@@ -842,18 +918,58 @@ export default class HeliusMonitor {
       }
     }
 
-    const fmt = (e) => `  ${e.addr} score=${e.score} status=${e.status}${e.isWhale ? ' [庄家地址]' : ''} | 原因: ${e.reasons}`;
+    // 按分数降序排列（分数高的排前面，便于发现高风险用户）
+    const byScore = (a, b) => b.score - a.score;
+    inMetrics.sort(byScore);
+    excluded.sort(byScore);
 
-    console.log(
-      `[评分-${phase}] ✓ 完成 阈值=${this.scoreThreshold}\n` +
-      `  参与4大参数(散户): ${inMetrics.length}人\n` +
-      inMetrics.map(fmt).join('\n') +
-      (inMetrics.length ? '\n' : '') +
-      `  不参与4大参数(庄家/超阈值): ${excluded.length}人\n` +
-      excluded.map(fmt).join('\n') +
-      (excluded.length ? '\n' : '') +
-      (unscored.length ? `  无评分(不参与): ${unscored.join(', ')}\n` : '')
-    );
+    // ── 格式化单个用户行 ──────────────────────────────────────────────
+    const fmtUser = (e, index) => {
+      const reasonLines = e.reasons.length > 0
+        ? e.reasons.map(r => `        • ${r}`).join('\n')
+        : '        • 无触发规则';
+      return (
+        `  [${String(index + 1).padStart(2, '0')}] ${e.short}\n` +
+        `       分数: ${String(e.score).padStart(4)}  状态: ${e.status}${e.isWhale ? '  ⚠ 庄家地址' : ''}\n` +
+        `       评分原因:\n` +
+        reasonLines
+      );
+    };
+
+    // ── 组合输出 ─────────────────────────────────────────────────────
+    const lines = [
+      `\n╔${'═'.repeat(W)}╗`,
+      `║  【评分完成 · ${phase}】  阈值=${this.scoreThreshold}  总用户=${allUsers.length}`,
+      `╠${'═'.repeat(W)}╣`,
+      `║  ✅ 散户/普通（参与4大参数）: ${inMetrics.length} 人`,
+      `╚${'═'.repeat(W)}╝`,
+    ];
+
+    if (inMetrics.length === 0) {
+      lines.push('  （无）');
+    } else {
+      inMetrics.forEach((e, i) => lines.push(fmtUser(e, i)));
+    }
+
+    if (excluded.length > 0) {
+      lines.push(
+        `\n╔${'═'.repeat(W)}╗`,
+        `║  ⛔ 庄家（不参与4大参数）: ${excluded.length} 人`,
+        `╚${'═'.repeat(W)}╝`
+      );
+      excluded.forEach((e, i) => lines.push(fmtUser(e, i)));
+    }
+
+    if (unscored.length > 0) {
+      lines.push(
+        `\n  ⚠ 未评分用户（${unscored.length} 人，不参与计算）:`,
+        ...unscored.map(a => `    ${a.slice(0, 10)}...${a.slice(-8)}`)
+      );
+    }
+
+    lines.push(`\n${'═'.repeat(W + 2)}  评分结束 [${phase}]\n`);
+
+    console.log(lines.join('\n'));
   }
 
   recalculateMetrics() {
