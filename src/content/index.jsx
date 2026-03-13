@@ -720,6 +720,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     }));
                 }
 
+                // ─── [TEST-DATA] EXECUTE_HOLDERS_REFRESH 数据流日志 ──────────────────
+                if (items && Array.isArray(items) && items.length > 0) {
+                    console.log('%c╔═══════════════════════════════════════════╗', 'color:#22c55e;font-weight:bold;font-size:13px');
+                    console.log('%c║  [TEST-DATA] EXECUTE_HOLDERS_REFRESH      ║', 'color:#22c55e;font-weight:bold;font-size:13px');
+                    console.log(`%c║  共 ${String(items.length).padEnd(4)} 条 → 复制下方数组到 holders_data.js  ║`, 'color:#22c55e;font-weight:bold;font-size:13px');
+                    console.log('%c╚═══════════════════════════════════════════╝', 'color:#22c55e;font-weight:bold;font-size:13px');
+                    console.log(JSON.parse(JSON.stringify(items)));
+                    console.log('%c─── holders 数据结束 ───', 'color:#22c55e;font-style:italic');
+                }
+                // ─── 数据流日志结束 ───────────────────────────────────────────────────
+
                 if (items && Array.isArray(items) && items.length > 0) {
                     // 唯一数据入口：直接调用 updateGmgnHolders，由它触发评分和 UI 推送
                     if (window.__heliusIntegration) {
@@ -841,6 +852,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
                     // [诊断] 接口原始数据日志（只打标题，不展开列表）
                     console.log(`[GMGN-API-RAW] 第${pageCount + 1}页 共${trades.length}条`);
+
+                    // ─── [TEST-DATA] EXECUTE_TRADES_REFRESH 数据流日志（仅第1页）────
+                    if (pageCount === 0 && trades.length > 0) {
+                        console.log('%c╔═══════════════════════════════════════════╗', 'color:#3b82f6;font-weight:bold;font-size:13px');
+                        console.log('%c║  [TEST-DATA] EXECUTE_TRADES_REFRESH       ║', 'color:#3b82f6;font-weight:bold;font-size:13px');
+                        console.log(`%c║  第1页 共 ${String(trades.length).padEnd(4)} 条 → 复制下方数组到 trades_data.js  ║`, 'color:#3b82f6;font-weight:bold;font-size:13px');
+                        console.log('%c╚═══════════════════════════════════════════╝', 'color:#3b82f6;font-weight:bold;font-size:13px');
+                        console.log(JSON.parse(JSON.stringify(trades)));
+                        console.log('%c─── trades 第1页数据结束 ───', 'color:#3b82f6;font-style:italic');
+                    }
+                    // ─── 数据流日志结束 ───────────────────────────────────────────
 
                     // 4. 更新数据 - 直接调用 HeliusIntegration，统一走 HeliusMonitor 数据体系
                     let newCount = 0;

@@ -189,12 +189,12 @@ export default class HeliusMonitor {
     console.log('[Helius] ── Step 1: 获取全部历史 sig ──');
     this._log('Step 1: 获取历史 sig 中...');
 
-    if (!this.heliusApiEnabled) {
-      console.log('[Helius] heliusApiEnabled=false，跳过 Helius 历史 sig 获取，直接进入实时模式');
-      this._log('Helius API 未启用，直接进入实时模式');
-      this.isInitialized = true;
-      return;
-    }
+    // if (!this.heliusApiEnabled) {
+    //   console.log('[Helius] heliusApiEnabled=false，跳过 Helius 历史 sig 获取，直接进入实时模式');
+    //   this._log('Helius API 未启用，直接进入实时模式');
+    //   this.isInitialized = true;
+    //   return;
+    // }
 
     const fetchResult = await this._fetchSigsStreaming();
     if (this.isStopped) return;
@@ -212,8 +212,8 @@ export default class HeliusMonitor {
     // 目的：确保 GMGN 数据已注入 SignatureManager，Step 2 补全时优先用 GMGN 数据
     console.log('[Helius] ── 等待 GMGN 第一轮分页加载完成（最多60s）──');
     this._log('等待 GMGN 首次数据加载...');
-    await this._waitForGmgnFirstLoad(60000);
-    if (this.isStopped) return;
+    // await this._waitForGmgnFirstLoad(60000);
+    // if (this.isStopped) return;
     const gmgnStats = this.signatureManager.getStats();
     console.log(`[Helius] ✓ GMGN 数据已就绪，SignatureManager 当前 sig 总数=${gmgnStats.total} 有数据=${gmgnStats.withData}`);
     this._log(`GMGN 数据就绪，有数据=${gmgnStats.withData}`);
