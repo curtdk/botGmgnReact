@@ -1,74 +1,33 @@
-[4大参数-追加] ── 新交易 ──
-  sig=3g7skNyF1FA6.. | addr=Gygj9Q..BUpA | 买入 | SOL=+0.0037 | Token=+701422 | 来源=GMGN
-  用户状态(历史19轮):
-    历史轮1: buy=0.0000 sell=0.0198 net=+0.0198
-    历史轮2: buy=0.0000 sell=0.0158 net=+0.0158
-    历史轮3: buy=0.0000 sell=0.0126 net=+0.0126
-    历史轮4: buy=0.0000 sell=0.0101 net=+0.0101
-    历史轮5: buy=0.0000 sell=0.0081 net=+0.0081
-    历史轮6: buy=0.0000 sell=0.0065 net=+0.0065
-    历史轮7: buy=0.0114 sell=0.0075 net=-0.0039
-    历史轮8: buy=0.0131 sell=0.0086 net=-0.0045
-    历史轮9: buy=0.0000 sell=0.0069 net=+0.0069
-    历史轮10: buy=0.0000 sell=0.0055 net=+0.0055
-    历史轮11: buy=0.0044 sell=0.0053 net=+0.0009
-    历史轮12: buy=0.0154 sell=0.0073 net=-0.0081
-    历史轮13: buy=0.0058 sell=0.0070 net=+0.0012
-    历史轮14: buy=0.0000 sell=0.0056 net=+0.0056
-    历史轮15: buy=0.0045 sell=0.0054 net=+0.0009
-    历史轮16: buy=0.0095 sell=0.0062 net=-0.0033
-    历史轮17: buy=0.0050 sell=0.0059 net=+0.0010
-    历史轮18: buy=0.0000 sell=0.0048 net=+0.0048
-    历史轮19: buy=0.0038 sell=0.0046 net=+0.0008
-    当前轮次: buy=0.0037 sell=0.0000 净成本=0.0037 txCount=1
-  ── 当前4大参数快照 ──
-  已落袋=+0.0805  本轮下注=0.1024  本轮成本=0.0219  浮盈亏=-0.0219  SOL
-index.jsx.js:4667 [GMGN-PROCESSED] 第1页 新增=2条 / 共36条
-index.jsx.js:3600 [GMGN] 分页加载完成，SignatureManager sig 总数=35 有数据=undefined
-index.jsx.js:4658 [GMGN-API-RAW] 第1页 共36条
-index.jsx.js:3875 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=36 monitor=true isInit=true loggerOn=true
-index.jsx.js:4667 [GMGN-PROCESSED] 第1页 新增=0条 / 共36条
-index.jsx.js:3600 [GMGN] 分页加载完成，SignatureManager sig 总数=35 有数据=undefined
-index.jsx.js:4658 [GMGN-API-RAW] 第1页 共37条
-index.jsx.js:3875 [GMGN-FETCH-DIAG] processFetchedTrades 被调用 trades=37 monitor=true isInit=true loggerOn=true
-index.jsx.js:2026 [4大参数-追加] ── 新交易 ──
-  sig=4H9edAybhcWi.. | addr=ABS6PM..72fv | 卖出 | SOL=+0.0219 | Token=+3520919 | 来源=GMGN
-  用户状态(历史1轮):
-    历史轮1: buy=0.0988 sell=0.0219 net=-0.0768
-    当前轮次: 无
-  ── 当前4大参数快照 ──
-  已落袋=+0.0037  本轮下注=0.0037  本轮成本=0.0000  浮盈亏=-0.0000  SOL
-
-
-
-
-  两笔交易前后对比
-交易1 之后（Gygj9Q 买入 0.0037 SOL）
-来源	参与者	贡献
-已落袋	Gygj9Q 历史19轮合计	+0.0805
-本轮下注	Gygj9Q 当前轮(0.0037) + ABS6PM 当前轮(0.0988)	0.1024
-本轮成本	0.1024 - 0.0805	0.0219
-注意此时 ABS6PM 还在当前轮，买了 0.0988 SOL 还没卖出。
-
-交易2 之后（ABS6PM 卖出 0.0219 SOL）
-ABS6PM 卖出全部 Token，触发轮次关闭：
-
-
-历史轮1: buy=0.0988  sell=0.0219  net = 0.0219 - 0.0988 = -0.0768  ← 亏损
-当前轮次: 无  ← 清仓退出
-于是：
-
-变化	原因
-已落袋 +0.0805 → +0.0037	ABS6PM 亏损 -0.0768 并入历史：0.0805 + (-0.0768) = +0.0037
-本轮下注 0.1024 → 0.0037	ABS6PM 退出当前轮，0.0988 从下注中消失，只剩 Gygj9Q 的 0.0037
-本轮成本 → 0.0000	0.0037 - 0.0037 = 0
-结论：计算正确，但有一个需要注意的问题
-数字跳变是正常的 — ABS6PM 买了 0.0988 SOL 的仓，只卖回 0.0219 SOL，亏损了 0.0768 SOL，这笔亏损从「未实现」变为「已实现」，进入了已落袋。
-
-但有一个潜在问题：ABS6PM 的 历史轮1.buy=0.0988 来自哪里？
-
-如果这个 0.0988 是从 GMGN 历史 trades 翻页加载的，需要确认：
-
-GMGN 是否加载了 ABS6PM 全部历史买入？
-还是只加载了部分页，导致 buy 值被低估 / 高估？
-可以看一下控制台日志里 ABS6PM 最早是什么时候进入 traderStats 的，以及翻页加载了几页。如果数据不完整，会导致轮次净流水失真。
+ [1] 未知 | sig=5mDD2kH9.. | addr=58oZgf..Letj | 买入 | SOL=-2.0000 | Token=+65507728
+  [2] 未知 | sig=5PQfTURL.. | addr=5nwvMf..6m6F | 买入 | SOL=-0.2959 | Token=+8053875
+  [3] 未知 | sig=3yVtjh9a.. | addr=JAcPnN..7NcK | 买入 | SOL=-0.0671 | Token=+1764391
+  [4] 未知 | sig=5rtUe1jm.. | addr=ASJFaR..aBEW | 买入 | SOL=-0.1021 | Token=+2701571
+  [5] 未知 | sig=53F2mBmX.. | addr=5nwvMf..6m6F | 卖出 | SOL=+0.2910 | Token=-8053875
+  [6] 未知 | sig=ufGMwezT.. | addr=5fPM1a..vzPy | 买入 | SOL=-0.1045 | Token=+2705143
+  [7] 未知 | sig=2gc9p21K.. | addr=JAcPnN..7NcK | 卖出 | SOL=+0.0650 | Token=-1764391
+  [8] 未知 | sig=4WwHQg4Z.. | addr=ASJFaR..aBEW | 卖出 | SOL=+0.1089 | Token=-2701571
+  [9] 未知 | sig=5kExJuoB.. | addr=9U86go..K79N | 买入 | SOL=-0.4334 | Token=+8575982
+  [10] 未知 | sig=5sSnrfC3.. | addr=5fPM1a..vzPy | 卖出 | SOL=+0.1362 | Token=-2705143
+  [11] 未知 | sig=3qbs2oMU.. | addr=6EiKHP..XNut | 买入 | SOL=-0.6933 | Token=+11747793
+  [12] 未知 | sig=2YAk2UJH.. | addr=GronvQ..dFYa | 买入 | SOL=-0.0240 | Token=+348073
+  [13] 未知 | sig=41cDDmQg.. | addr=DDDD2z..3R5R | 买入 | SOL=-0.8130 | Token=+11269441
+  [14] 未知 | sig=3RckHgZf.. | addr=bkbioy..VTKq | 买入 | SOL=-0.3024 | Token=+4079522
+  [15] 未知 | sig=XYzJiw9r.. | addr=ojiyUR..pk67 | 买入 | SOL=-0.4941 | Token=+6583889
+  [16] 未知 | sig=2wNPPycB.. | addr=bkbioy..VTKq | 卖出 | SOL=+0.3003 | Token=-4079522
+  [17] 未知 | sig=5ae5pDHt.. | addr=Ba65oK..mhro | 买入 | SOL=-0.3098 | Token=+4100381
+  [18] 未知 | sig=4pm9c4Y9.. | addr=ojiyUR..pk67 | 卖出 | SOL=+0.4819 | Token=-6583889
+  [19] 未知 | sig=65TMEdpN.. | addr=9d7h1k..c3gC | 买入 | SOL=-0.2555 | Token=+3360986
+  [20] 未知 | sig=5YDgKSYy.. | addr=8aaRWu..EzVL | 买入 | SOL=-0.1530 | Token=+2012081
+  [21] 未知 | sig=2XiKQVAu.. | addr=9U86go..K79N | 卖出 | SOL=+0.3217 | Token=-8575982
+  [22] 未知 | sig=4eGgN5Ku.. | addr=6EiKHP..XNut | 卖出 | SOL=+0.3884 | Token=-11747793
+  [23] 未知 | sig=2Km4qy68.. | addr=58oZgf..Letj | 卖出 | SOL=+2.0069 | Token=-65507728
+  [24] 未知 | sig=5Kohstmf.. | addr=4whAbL..TZKo | 买入 | SOL=-0.0336 | Token=+1068714
+  [25] 未知 | sig=hhwEgepc.. | addr=CCCCQC..hqrd | 买入 | SOL=-0.2524 | Token=+8399471
+  [26] 未知 | sig=DcmZJe8E.. | addr=8aaRWu..EzVL | 卖出 | SOL=+0.0607 | Token=-2012081
+  [27] 未知 | sig=3HSiqXF9.. | addr=9jWmKK..o6Dn | 买入 | SOL=-0.2573 | Token=+8131428
+  [28] 未知 | sig=2nHgg2Lr.. | addr=DDDD2z..3R5R | 卖出 | SOL=+0.3319 | Token=-11269441
+  [29] 未知 | sig=TzNZv9cE.. | addr=4whAbL..TZKo | 卖出 | SOL=+0.0326 | Token=-1068714
+  [30] 未知 | sig=KXV11voc.. | addr=GronvQ..dFYa | 卖出 | SOL=+0.0101 | Token=-348073
+  [31] 未知 | sig=2YHn9JdR.. | addr=Ba65oK..mhro | 卖出 | SOL=+0.1178 | Token=-4100381
+  [32] 未知 | sig=5gspZhVM.. | addr=CCCCQC..hqrd | 卖出 | SOL=+0.2404 | Token=-8399471
+  [33] 未知 | sig=3e47RX7Q.. | addr=9jWmKK..o6Dn | 卖出 | SOL=+0.2224 | Token=-8131428

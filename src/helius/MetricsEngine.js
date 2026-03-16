@@ -706,7 +706,7 @@ export default class MetricsEngine {
   // 4大参数详细计算报告（console.log）
   // ─────────────────────────────────────────────────────────
 
-  printCalculationReport() {
+  printCalculationReport(processedSigOrder = null) {
     // ════════════════════════════════════════════════════════════════════════
     // 【历史计算完整报告】在 Step3 全量历史计算结束后输出一次
     //   Part 0: 4大参数 计算规则说明
@@ -741,12 +741,25 @@ export default class MetricsEngine {
       `╚${'═'.repeat(68)}╝\n`
     );
 
-    // ── Part 1：全部参与计算的 trades（按时间顺序从旧到新）──
-    const allTrades = [];
+    // ── Part 1：全部参与计算的 trades（严格按 SignatureManager 计算顺序，从旧到新）──
+    // 建立 sig → trade 映射（每条 sig 对应唯一一笔交易记录）
+    const tradesBySig = new Map();
     for (const [addr, history] of Object.entries(this.traderHistory)) {
-      history.forEach(t => allTrades.push({ ...t, address: addr }));
+      for (const t of history) tradesBySig.set(t.signature, { ...t, address: addr });
     }
-    allTrades.sort((a, b) => a.rawTimestamp - b.rawTimestamp);
+
+    let allTrades;
+    if (processedSigOrder && processedSigOrder.length > 0) {
+      // 严格按 performInitialCalculation 的处理顺序重建，无需 sort
+      allTrades = processedSigOrder.map(sig => tradesBySig.get(sig)).filter(Boolean);
+    } else {
+      // 兜底：按 rawTimestamp 排序（同秒内可能不精确）
+      allTrades = [];
+      for (const [addr, history] of Object.entries(this.traderHistory)) {
+        history.forEach(t => allTrades.push({ ...t, address: addr }));
+      }
+      allTrades.sort((a, b) => a.rawTimestamp - b.rawTimestamp);
+    }
 
     const lines1 = allTrades.map((t, i) => {
       const addrShort = t.address.slice(0, 6) + '..' + t.address.slice(-4);

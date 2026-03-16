@@ -283,7 +283,7 @@ export default class HeliusMonitor {
     console.log(`[Helius] ── Step 3: 首次 4 大参数计算 ──`);
     this._log('Step 3: 开始历史计算（从最早 sig）...');
 
-    await this.performInitialCalculation();
+    const processedOrder = await this.performInitialCalculation();
     if (this.isStopped) return;
 
     console.log(`[Helius] Step 3 ✓ 计算完成，已处理 ${this.metricsEngine.processedCount} 条`);
@@ -337,7 +337,7 @@ export default class HeliusMonitor {
 
 
     // ── 4大参数报告（评分后输出，filteredUsers 已生效）──
-    this.metricsEngine.printCalculationReport();
+    this.metricsEngine.printCalculationReport(processedOrder);
 
     // ── Step 4: 进入实时模式 ──
     this.isInitialized = true;
@@ -495,13 +495,13 @@ export default class HeliusMonitor {
   // ─────────────────────────────────────────────────────────
 
   async performInitialCalculation() {
-    if (this.isStopped) return;
+    if (this.isStopped) return [];
 
     // 顺序计算：从旧到新，遇到第一个 hasData=false gap 就停
     // 保证 4 大参数按时序连续计算，gap 后的 sig 等补全后再续算
     const readySignatures = this.signatureManager.getReadySignaturesSequential();
     if (readySignatures.length === 0) {
-      return;
+      return [];
     }
 
     const gapCount = this.signatureManager.getMissingSignatures().length;
@@ -515,13 +515,17 @@ export default class HeliusMonitor {
       dataFlowLogger.log('HeliusMonitor', 'Step7 计算排序', `共${readySignatures.length}条 | 最旧(先处理)sig=${first?.sig?.slice(0,8)} slot=${first?.slot} ts=${first?.blockTime||first?.timestamp} | 最新(后处理)sig=${last?.sig?.slice(0,8)} slot=${last?.slot} ts=${last?.blockTime||last?.timestamp}`, null);
     }
 
+    // 处理并记录严格的计算顺序，用于 printCalculationReport 精确重建时序
+    const processedOrder = [];
     for (const item of readySignatures) {
-      if (this.isStopped) return;
+      if (this.isStopped) return processedOrder;
       this.metricsEngine.processTransaction(item.txData, this.mint);
       this.signatureManager.markProcessed(item.sig);
+      processedOrder.push(item.sig);
     }
     // 注意：printCalculationReport 和 _fireMetricsUpdate 已移至 _runHeliusInitTask
     // 在评分完成后调用，确保 4大参数按 filteredUsers 过滤，recentTrades 携带 score
+    return processedOrder;
   }
 
   /**

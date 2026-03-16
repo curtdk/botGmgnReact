@@ -228,5 +228,11 @@ EXECUTE_TRADES_REFRESH
   }
 
 
+发现一个排序问题 导致 printCalculationReport  方法打印 顺序 在同一时间段内的有偏差。
+原因：performInitialCalculation 计算中的次序是对的 通过 signatureManager 获取的排序 ，然后我发现在后面的语句 ，加了下面 时间属性，而且在 printCalculationReport 的时候有使用了，时间排序， 对在同一时间的trade  排序出现错误。
+processHeliusTransaction
+    const rawTimestamp = tx.timestamp ? tx.timestamp * 1e3 : Date.now();
+    const timestamp = tx.timestamp ? new Date(rawTimestamp).toLocaleString("zh-CN") : "未知";
+printCalculationReport
 
-
+首先要确定trade 的正确排序就是获取的顺序signatureManager， 上面时间属性是否没有意义 还容易错误使用是否要删除。 其他相关的排序也是同样，都要用 正确的排序顺序。
