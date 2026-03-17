@@ -236,3 +236,14 @@ processHeliusTransaction
 printCalculationReport
 
 首先要确定trade 的正确排序就是获取的顺序signatureManager， 上面时间属性是否没有意义 还容易错误使用是否要删除。 其他相关的排序也是同样，都要用 正确的排序顺序。
+
+
+  // ── 本轮下注：持仓用户的总买入 - 总卖出 ──
+      if (stats.netTokenReceived >= 1) {
+        const netCost = stats.totalBuySol - stats.totalSellSol; // 总买入 - 总卖出
+        benLunXiaZhu += netCost;
+        const round = stats.currentRound; // currentNetFlow 仍用当前轮，供 fuYingFuKui 使用
+        currentNetFlow += round.sellSOL - round.buySOL; // 负值（当前用户净流出SOL）
+        activeCount++;
+        logXiaZhu.push(`${s}: totalBuy=${stats.totalBuySol.toFixed(4)} - totalSell=${stats.totalSellSol.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
+      }

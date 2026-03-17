@@ -427,8 +427,8 @@ export default class MetricsEngine {
           snapExitedCount += s.completedRounds.length;
         }
         const r = s.currentRound;
-        if (r.buySOL > 0 || r.txCount > 0) {
-          snapXiazhu  += r.buySOL - r.sellSOL;
+        if (s.netTokenReceived >= 1) {
+          snapXiazhu  += s.totalBuySol - s.totalSellSol; // 总买入 - 总卖出
           snapNetFlow += r.sellSOL - r.buySOL;
           snapActiveCount++;
         }
@@ -501,7 +501,7 @@ export default class MetricsEngine {
    */
   getMetrics() {
     let yiLuDai = 0;        // 已落袋 = Σ历史轮次净流水
-    let benLunXiaZhu = 0;   // 本轮下注 = Σ(当前轮次买入 - 当前轮次卖出) for 持仓用户
+    let benLunXiaZhu = 0;   // 本轮下注 = Σ(totalBuySol - totalSellSol) for 持仓用户
     let currentNetFlow = 0; // 当前持仓用户净流水之和 = Σ(sell - buy) for 持仓用户（负值）
     let activeCount = 0;
     let exitedRoundsCount = 0;
@@ -527,14 +527,14 @@ export default class MetricsEngine {
         logYiLuDai.push(`${s}: 历史${stats.completedRounds.length}轮\n${roundLines}\n  小计=${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
       }
 
-      // ── 本轮下注：当前未完结轮次的净成本 ──
-      const round = stats.currentRound;
-      if (round.buySOL > 0 || round.txCount > 0) {
-        const netCost = round.buySOL - round.sellSOL; // 正值 = 净投入
+      // ── 本轮下注：持仓用户的总买入 - 总卖出 ──
+      if (stats.netTokenReceived >= 1) {
+        const netCost = stats.totalBuySol - stats.totalSellSol; // 总买入 - 总卖出
         benLunXiaZhu += netCost;
+        const round = stats.currentRound; // currentNetFlow 仍用当前轮，供 fuYingFuKui 使用
         currentNetFlow += round.sellSOL - round.buySOL; // 负值（当前用户净流出SOL）
         activeCount++;
-        logXiaZhu.push(`${s}: buy=${round.buySOL.toFixed(4)} - sell=${round.sellSOL.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
+        logXiaZhu.push(`${s}: totalBuy=${stats.totalBuySol.toFixed(4)} - totalSell=${stats.totalSellSol.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
       }
     });
 
@@ -640,9 +640,9 @@ export default class MetricsEngine {
       if (this.filteredUsers.size > 0 && !this.filteredUsers.has(addr)) return;
       if (this.whaleAddresses.has(addr)) return;
       if (s.totalHistoricalNetFlow !== 0) yiLuDai += s.totalHistoricalNetFlow;
-      const r = s.currentRound;
-      if (r.buySOL > 0 || r.txCount > 0) {
-        benLunXiaZhu += r.buySOL - r.sellSOL;
+      if (s.netTokenReceived >= 1) {
+        benLunXiaZhu += s.totalBuySol - s.totalSellSol;
+        const r = s.currentRound;
         currentNetFlow += r.sellSOL - r.buySOL;
       }
     });
@@ -820,13 +820,13 @@ export default class MetricsEngine {
         detailYiLuDai.push(`  ${addrShort}: 历史${stats.completedRounds.length}轮\n${roundLines}\n  小计=${stats.totalHistoricalNetFlow >= 0 ? '+' : ''}${stats.totalHistoricalNetFlow.toFixed(4)} SOL`);
       }
 
-      const round = stats.currentRound;
-      if (round.buySOL > 0 || round.txCount > 0) {
-        const netCost = round.buySOL - round.sellSOL;
+      if (stats.netTokenReceived >= 1) {
+        const netCost = stats.totalBuySol - stats.totalSellSol; // 总买入 - 总卖出
         benLunXiaZhu += netCost;
+        const round = stats.currentRound;
         currentNetFlow += round.sellSOL - round.buySOL;
         activeCount++;
-        detailXiaZhu.push(`  ${addrShort}: buy=${round.buySOL.toFixed(4)} - sell=${round.sellSOL.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
+        detailXiaZhu.push(`  ${addrShort}: totalBuy=${stats.totalBuySol.toFixed(4)} - totalSell=${stats.totalSellSol.toFixed(4)} = 净成本${netCost.toFixed(4)}`);
       }
     }
 
