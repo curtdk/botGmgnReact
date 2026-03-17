@@ -1556,11 +1556,11 @@ const App = () => {
                   )}
                   <div style={{
                       display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
+                      gridTemplateColumns: '1fr 1fr 1fr',
                       gap: '6px',
                       marginBottom: '8px',
                   }}>
-                      {/* 本轮下注 - 左上，橙色，紫色背景 */}
+                      {/* 本轮下注，橙色，紫色背景 */}
                       <div style={{
                           backgroundColor: '#1e0a3c',
                           borderRadius: '8px',
@@ -1573,7 +1573,7 @@ const App = () => {
                               {(() => { const m = fmtMetric(heliusMetrics.benLunXiaZhu); return <>{m.value}<span style={{ fontSize: '9px', color: '#c4b5fd', marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
-                      {/* 本轮成本 - 右上，青色 */}
+                      {/* 本轮成本，青色 */}
                       <div style={{
                           backgroundColor: '#0c1a2e',
                           borderRadius: '8px',
@@ -1586,7 +1586,7 @@ const App = () => {
                               {(() => { const m = fmtMetric(heliusMetrics.benLunChengBen); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
-                      {/* 已落袋 - 左下，绿色 */}
+                      {/* 已落袋，绿色 */}
                       <div style={{
                           backgroundColor: '#0c1a2e',
                           borderRadius: '8px',
@@ -1597,19 +1597,6 @@ const App = () => {
                           <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>已落袋</div>
                           <div style={{ color: heliusMetrics.yiLuDai < 0 ? '#ef4444' : '#10b981', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
                               {(() => { const m = fmtMetric(heliusMetrics.yiLuDai); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
-                          </div>
-                      </div>
-                      {/* 浮盈浮亏 - 右下，红/绿 */}
-                      <div style={{
-                          backgroundColor: '#0c1a2e',
-                          borderRadius: '8px',
-                          padding: '8px 10px',
-                          textAlign: 'center',
-                          border: '1px solid #1e3a5f'
-                      }}>
-                          <div style={{ color: styles.colors.textSecondary, fontSize: '11px', marginBottom: '4px' }}>浮盈浮亏</div>
-                          <div style={{ color: heliusMetrics.floatingPnL >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold', fontSize: '18px', lineHeight: 1.2 }}>
-                              {(() => { const m = fmtMetric(heliusMetrics.floatingPnL); return <>{m.value}<span style={{ fontSize: '9px', color: styles.colors.textSecondary, marginLeft: '2px' }}>{m.unit}</span></>; })()}
                           </div>
                       </div>
                   </div>
