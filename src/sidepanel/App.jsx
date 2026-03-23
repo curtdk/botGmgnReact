@@ -404,7 +404,7 @@ const App = () => {
   // 自动更新状态
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [serverVersion, setServerVersion] = useState('');
-  const CURRENT_VERSION = '1.0.7';
+  const CURRENT_VERSION = '1.0.8';
   const UPDATE_SERVER_URL = 'http://f.tatagogo.com/gmgn-extension/version.json';
   
   // 检查更新
