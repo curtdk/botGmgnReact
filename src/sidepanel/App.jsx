@@ -1778,7 +1778,7 @@ const App = () => {
           {/* [已删除: 数据流日志] */}
           {/* 版本信息 */}
           <div style={{ fontSize: '8px', color: '#6b7280', marginTop: '8px', textAlign: 'center' }}>
-              v1.0.5
+              v1.0.7 CDP AUTO
           </div>
 
           {/* Detail Modal */}
