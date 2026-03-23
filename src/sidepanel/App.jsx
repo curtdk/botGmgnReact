@@ -1937,19 +1937,7 @@ const App = () => {
               </div>
           </div>
 
-          {/* Status Logs */}
-          <div style={{ ...styles.statusLogs, maxHeight: '60px' }}>
-              {statusLogs.map((log, idx) => (
-                  <div key={idx} style={{ marginBottom: '2px' }}>{log}</div>
-              ))}
-          </div>
-
-          {/* Debug Info Footer */}
-          {debugInfo && (
-              <div style={styles.debugInfo}>
-                  {debugInfo}
-              </div>
-          )}
+          {/* [已删除: Status Logs] */}
         </>
       )}
               
