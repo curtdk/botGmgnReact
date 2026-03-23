@@ -404,8 +404,8 @@ const App = () => {
   // 自动更新状态
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [serverVersion, setServerVersion] = useState('');
-  const CURRENT_VERSION = '1.0.8';
-  const UPDATE_SERVER_URL = 'http://f.tatagogo.com/gmgn-extension/version.json';
+  const CURRENT_VERSION = '1.0.9';
+  const UPDATE_SERVER_URL = 'http://t.tatagogo.com/gmgn-extension/version.json';
   
   // 检查更新
   useEffect(() => {
@@ -420,6 +420,7 @@ const App = () => {
       })
       .catch(() => {});
   }, []);
+  
   const [items, setItems] = useState([]); // 列表数据
   const [filterRetail, setFilterRetail] = useState(true);
   const [filterBoss, setFilterBoss] = useState(false);
@@ -1795,42 +1796,145 @@ const App = () => {
 
           </>}
 
-          {/* [已删除: 数据流日志] */}
-          
-          {/* 自动更新提示 */}
-          {updateAvailable && (
-              <div style={{ 
-                  marginTop: '8px', 
-                  padding: '8px', 
-                  backgroundColor: '#1d4ed8', 
-                  borderRadius: '4px',
-                  textAlign: 'center'
-              }}>
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>
-                      发现新版本: {serverVersion}
-                  </div>
-                  <a 
-                      href="http://f.tatagogo.com/gmgn-extension/" 
-                      target="_blank"
-                      style={{ 
-                          display: 'inline-block',
-                          marginTop: '4px',
-                          padding: '4px 12px', 
-                          backgroundColor: '#10b981', 
-                          color: '#fff', 
-                          borderRadius: '4px',
-                          fontSize: '10px',
-                          textDecoration: 'none'
-                      }}
-                  >
-                      点击下载更新
-                  </a>
+          {/* Helius 指标 */}
+          <div style={{
+              ...styles.summary,
+              marginTop: '8px'
+          }}>
+              {/* 行1：标题 + Mint + SOL/USDT切换 + 启用开关 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#10b981', fontSize: '12px' }}>📊 实时指标</span>
+                  {pageMint && (
+                      <span
+                          style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '10px', cursor: 'pointer' }}
+                          title={pageMint}
+                          onClick={() => { navigator.clipboard.writeText(pageMint); addLog('Mint已复制'); }}
+                      >
+                          {pageMint.slice(0, 6)}...{pageMint.slice(-4)}
+                      </span>
+                  )}
+                  <span style={{ color: styles.colors.border }}>|</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', fontSize: '10px', color: styles.colors.textSecondary }}
+                      title="关闭后仍会接收 GMGN 数据，但不调用 Helius API">
+                      <input type="checkbox" checked={heliusMonitorEnabled} onChange={e => toggleHeliusMonitor(e.target.checked)} style={{ cursor: 'pointer', margin: 0 }} />
+                      Helius
+                  </label>
+                  {/* WS状态 */}
+                  {heliusMonitorEnabled && (
+                      <>
+                          <span style={{ color: styles.colors.border }}>|</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}
+                              title={heliusWsStatus.error ? `错误: ${heliusWsStatus.error}` : (heliusWsStatus.reconnectCount > 0 ? `重连 ${heliusWsStatus.reconnectCount} 次` : '')}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: heliusWsStatus.connected ? '#10b981' : '#ef4444', display: 'inline-block', flexShrink: 0 }}></span>
+                              <span style={{ color: heliusWsStatus.connected ? '#10b981' : '#ef4444' }}>WS</span>
+                          </span>
+                      </>
+                  )}
               </div>
-          )}
-          
-          {/* 版本信息 */}
-          <div style={{ fontSize: '8px', color: '#6b7280', marginTop: '8px', textAlign: 'center' }}>
-              v{CURRENT_VERSION}
+
+              {heliusWsStatus.error && (
+                  <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
+              )}
+
+              {/* 数据流日志控制 */}
+              <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  backgroundColor: styles.colors.cardBg,
+                  borderRadius: '4px',
+                  border: `1px solid ${styles.colors.border}`
+              }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 'bold' }}>📋 数据流日志</span>
+                      <label style={{
+                          fontSize: '10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          cursor: 'pointer',
+                          color: styles.colors.textSecondary
+                      }}>
+                          <input
+                              type="checkbox"
+                              checked={dataFlowLoggerEnabled}
+                              onChange={e => toggleDataFlowLogger(e.target.checked)}
+                              style={{ cursor: 'pointer' }}
+                          />
+                          启用日志
+                      </label>
+                  </div>
+                  {/* 翻页设置 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px', marginBottom: '6px', paddingBottom: '6px', borderBottom: `1px solid ${styles.colors.border}` }}>
+                      <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>最大翻页</span>
+                      <input
+                          type="number" min="1" max="500"
+                          value={maxPages}
+                          onChange={e => {
+                              const v = Math.max(1, parseInt(e.target.value) || 1);
+                              setMaxPages(v);
+                              chrome.storage.local.set({ gmgn_max_pages: v });
+                          }}
+                          style={{ ...styles.input, width: '45px' }}
+                          title="每次 GMGN 分页最多翻几页（默认30）"
+                      />
+                      <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>间隔(ms)</span>
+                      <input
+                          type="number" min="0" max="10000"
+                          value={pageDelay}
+                          onChange={e => {
+                              const v = Math.max(0, parseInt(e.target.value) || 0);
+                              setPageDelay(v);
+                              chrome.storage.local.set({ gmgn_page_delay: v });
+                          }}
+                          style={{ ...styles.input, width: '55px' }}
+                          title="每翻一页前暂停的毫秒数（默认1000）"
+                      />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '4px', fontSize: '10px' }}>
+                      <button
+                          onClick={viewLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#3b82f6',
+                              color: '#fff'
+                          }}
+                      >
+                          查看日志 ({logStats.total})
+                      </button>
+                      <button
+                          onClick={exportLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#10b981',
+                              color: '#fff'
+                          }}
+                      >
+                          导出
+                      </button>
+                      <button
+                          onClick={clearLogs}
+                          style={{
+                              ...styles.smBtn,
+                              flex: 1,
+                              padding: '4px 8px',
+                              backgroundColor: '#ef4444',
+                              color: '#fff'
+                          }}
+                      >
+                          清空
+                      </button>
+                  </div>
+                  {logStats.total > 0 && (
+                      <div style={{ fontSize: '9px', color: styles.colors.textSecondary, marginTop: '4px' }}>
+                          来源: {Object.entries(logStats.bySources).map(([source, count]) => `${source}=${count}`).join(' | ')}
+                      </div>
+                  )}
+              </div>
           </div>
 
           {/* Detail Modal */}
@@ -1989,7 +2093,55 @@ const App = () => {
               </div>
           </div>
 
-          {/* [已删除: Status Logs] */}
+          {/* Status Logs */}
+          <div style={{ ...styles.statusLogs, maxHeight: '60px' }}>
+              {statusLogs.map((log, idx) => (
+                  <div key={idx} style={{ marginBottom: '2px' }}>{log}</div>
+              ))}
+          </div>
+
+          {/* Debug Info Footer */}
+          {debugInfo && (
+              <div style={styles.debugInfo}>
+                  {debugInfo}
+              </div>
+          )}
+          
+          {/* 自动更新提示 */}
+          {updateAvailable && (
+              <div style={{ 
+                  marginTop: '8px', 
+                  padding: '8px', 
+                  backgroundColor: '#1d4ed8', 
+                  borderRadius: '4px',
+                  textAlign: 'center'
+              }}>
+                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>
+                      发现新版本: {serverVersion}
+                  </div>
+                  <a 
+                      href="http://t.tatagogo.com/gmgn-extension/" 
+                      target="_blank"
+                      style={{ 
+                          display: 'inline-block',
+                          marginTop: '4px',
+                          padding: '4px 12px', 
+                          backgroundColor: '#10b981', 
+                          color: '#fff', 
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          textDecoration: 'none'
+                      }}
+                  >
+                      点击下载更新
+                  </a>
+              </div>
+          )}
+          
+          {/* 版本信息 */}
+          <div style={{ fontSize: '8px', color: '#6b7280', marginTop: '8px', textAlign: 'center' }}>
+              v{CURRENT_VERSION}
+          </div>
         </>
       )}
               
