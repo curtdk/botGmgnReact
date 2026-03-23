@@ -1775,7 +1775,109 @@ const App = () => {
 
           </>}
 
-          {/* [已删除: 实时指标面板] */}
+          {/* 数据流日志控制 */}
+          <div style={{
+              marginTop: '8px',
+              padding: '8px',
+              backgroundColor: styles.colors.cardBg,
+              borderRadius: '4px',
+              border: `1px solid ${styles.colors.border}`
+          }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold' }}>📋 数据流日志</span>
+                  <label style={{
+                      fontSize: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer',
+                      color: styles.colors.textSecondary
+                  }}>
+                      <input
+                          type="checkbox"
+                          checked={dataFlowLoggerEnabled}
+                          onChange={e => toggleDataFlowLogger(e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                      />
+                      启用日志
+                  </label>
+              </div>
+              {/* 翻页设置 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px', marginBottom: '6px', paddingBottom: '6px', borderBottom: `1px solid ${styles.colors.border}` }}>
+                  <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>最大翻页</span>
+                  <input
+                      type="number" min="1" max="500"
+                      value={maxPages}
+                      onChange={e => {
+                          const v = Math.max(1, parseInt(e.target.value) || 1);
+                          setMaxPages(v);
+                          chrome.storage.local.set({ gmgn_max_pages: v });
+                      }}
+                      style={{ ...styles.input, width: '45px' }}
+                      title="每次 GMGN 分页最多翻几页（默认30）"
+                  />
+                  <span style={{ color: styles.colors.textSecondary, whiteSpace: 'nowrap' }}>间隔(ms)</span>
+                  <input
+                      type="number" min="0" max="10000"
+                      value={pageDelay}
+                      onChange={e => {
+                          const v = Math.max(0, parseInt(e.target.value) || 0);
+                          setPageDelay(v);
+                          chrome.storage.local.set({ gmgn_page_delay: v });
+                      }}
+                      style={{ ...styles.input, width: '55px' }}
+                      title="每翻一页前暂停的毫秒数（默认1000）"
+                  />
+              </div>
+
+              <div style={{ display: 'flex', gap: '4px', fontSize: '10px' }}>
+                  <button
+                      onClick={viewLogs}
+                      style={{
+                          ...styles.smBtn,
+                          flex: 1,
+                          padding: '4px 8px',
+                          backgroundColor: '#3b82f6',
+                          color: '#fff'
+                      }}
+                  >
+                      查看日志 ({logStats.total})
+                  </button>
+                  <button
+                      onClick={exportLogs}
+                      style={{
+                          ...styles.smBtn,
+                          flex: 1,
+                          padding: '4px 8px',
+                          backgroundColor: '#10b981',
+                          color: '#fff'
+                      }}
+                  >
+                      导出
+                  </button>
+                  <button
+                      onClick={clearLogs}
+                      style={{
+                          ...styles.smBtn,
+                          flex: 1,
+                          padding: '4px 8px',
+                          backgroundColor: '#ef4444',
+                          color: '#fff'
+                      }}
+                  >
+                      清空
+                  </button>
+              </div>
+              {logStats.total > 0 && (
+                  <div style={{ fontSize: '9px', color: styles.colors.textSecondary, marginTop: '4px' }}>
+                      来源: {Object.entries(logStats.bySources).map(([source, count]) => `${source}=${count}`).join(' | ')}
+                  </div>
+              )}
+              {/* 版本信息 */}
+              <div style={{ fontSize: '8px', color: '#6b7280', marginTop: '8px', textAlign: 'center', borderTop: '1px solid #374151', paddingTop: '4px' }}>
+                  v1.0.4
+              </div>
+          </div>
 
           {/* Detail Modal */}
           {selectedItem && (
