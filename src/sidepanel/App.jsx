@@ -400,6 +400,26 @@ const App = () => {
   const [width, setWidth] = useState(window.innerWidth); // 响应式宽度
   const [statusLogs, setStatusLogs] = useState(['状态：就绪']); // 改为多行日志
   const [debugInfo, setDebugInfo] = useState('');
+  
+  // 自动更新状态
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [serverVersion, setServerVersion] = useState('');
+  const CURRENT_VERSION = '1.0.7';
+  const UPDATE_SERVER_URL = 'http://f.tatagogo.com/gmgn-extension/version.json';
+  
+  // 检查更新
+  useEffect(() => {
+    fetch(UPDATE_SERVER_URL)
+      .then(res => res.json())
+      .then(data => {
+        const latest = data.version || data;
+        setServerVersion(latest);
+        if (latest !== CURRENT_VERSION) {
+          setUpdateAvailable(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [items, setItems] = useState([]); // 列表数据
   const [filterRetail, setFilterRetail] = useState(true);
   const [filterBoss, setFilterBoss] = useState(false);
@@ -1776,9 +1796,41 @@ const App = () => {
           </>}
 
           {/* [已删除: 数据流日志] */}
+          
+          {/* 自动更新提示 */}
+          {updateAvailable && (
+              <div style={{ 
+                  marginTop: '8px', 
+                  padding: '8px', 
+                  backgroundColor: '#1d4ed8', 
+                  borderRadius: '4px',
+                  textAlign: 'center'
+              }}>
+                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>
+                      发现新版本: {serverVersion}
+                  </div>
+                  <a 
+                      href="http://f.tatagogo.com/gmgn-extension/" 
+                      target="_blank"
+                      style={{ 
+                          display: 'inline-block',
+                          marginTop: '4px',
+                          padding: '4px 12px', 
+                          backgroundColor: '#10b981', 
+                          color: '#fff', 
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          textDecoration: 'none'
+                      }}
+                  >
+                      点击下载更新
+                  </a>
+              </div>
+          )}
+          
           {/* 版本信息 */}
           <div style={{ fontSize: '8px', color: '#6b7280', marginTop: '8px', textAlign: 'center' }}>
-              v1.0.7 CDP AUTO
+              v{CURRENT_VERSION}
           </div>
 
           {/* Detail Modal */}
