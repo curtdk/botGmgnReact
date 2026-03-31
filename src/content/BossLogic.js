@@ -122,21 +122,32 @@ export default class BossLogic {
             }
         }
 
-        // 9. 无资金来源-隐藏中转
-        // 条件1（快）：holder 数据已加载且 funding_account 为空 → 直接成立
+        // 9. 无资金来源 - 隐藏中转
+        // 条件 1（快）：holder 数据已加载且 funding_account 为空 → 直接成立
         //   注意：has_holder_snapshot=false 时 funding_account 为空只是"未获取"，不能算无来源
-        // 条件2（慢）：仅当 funding_account 存在时，由 detectHiddenRelays 检测第一笔 tx 含 Create+CloseAccount 指令
+        // 条件 2（快）：funded-by API 返回的首笔交易检测到 Create+CloseAccount 指令
+        // 条件 3（快）：funding_account 存在但 SOL 余额为 0 → 直接成立
         if (config.enable_hidden_relay) {
             const w = config.weight_hidden_relay || 15;
+
+            // 条件 1：holder 数据已加载且 funding_account 为空
             if (user.has_holder_snapshot && !user.funding_account) {
                 score += w;
-                reasons.push(`无资金来源/中转(+${w})`);
-            } else if (user.has_hidden_relay) {
-                const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join('+') : '';
+                reasons.push(`无资金来源/中转 (+${w})`);
+            }
+            // 条件 2 + 条件 3：有 funding_account，检测隐藏中转或余额为 0
+            else if (user.has_hidden_relay) {
+                const condStr = user.hidden_relay_conditions ? user.hidden_relay_conditions.join("+") : "";
                 score += w;
-                reasons.push(`隐藏中转[${condStr}](+${w})`);
+                reasons.push(`隐藏中转 [${condStr}](+${w})`);
+            }
+            // 条件 3：来源账户余额为 0
+            else if (user.source_balance_zero === true) {
+                score += w;
+                reasons.push(`来源余额为 0(+${w})`);
             }
         }
+
 
         return { score, reasons };
     }

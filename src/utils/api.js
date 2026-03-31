@@ -1,4 +1,4 @@
-import { parsePriceText } from './priceParser';
+import { parsePriceText } from './priceParser.js';
 
 // 核心数据 API (移植自原版 content.js)
 
@@ -231,6 +231,91 @@ export function findPriceDOM() {
     } catch (e) {
     }
     return null;
+}
+
+// -------------------------------------------------------------------------
+// Helius Wallet API - funded-by 查询 (用于获取资金来源和首笔交易)
+// -------------------------------------------------------------------------
+/**
+ * 获取钱包资金来源 (funded-by API)
+ * API: /v1/wallet/{address}/funded-by
+ *
+ * @param {string} walletAddress - 钱包地址
+ * @param {string} [apiKey] - Helius API Key (可选，默认使用环境变量或内置 key)
+ * @returns {Promise<{funder?: string, amount?: number, symbol?: string, date?: string, signature?: string} | null>}
+ */
+export async function getWalletFundedBy(walletAddress, apiKey) {
+    const key = apiKey || process.env.HELIUS_API_KEY || 'f43f1a35-863c-4c55-9a13-d00092f0ff2d';
+    const url = `https://api.helius.xyz/v1/wallet/${walletAddress}/funded-by?api-key=${key}`;
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (err) {
+        console.error(`[funded-by] 请求失败：${err.message}`);
+        return null;
+    }
+}
+
+/**
+ * 获取钱包 SOL 余额 (标准 RPC)
+ *
+ * @param {string} walletAddress - 钱包地址
+ * @param {string} [apiKey] - Helius API Key (可选，默认使用环境变量或内置 key)
+ * @returns {Promise<number | null>} SOL 余额（单位：SOL），失败返回 null
+ */
+export async function getWalletBalance(walletAddress, apiKey) {
+    const key = apiKey || process.env.HELIUS_API_KEY || 'f43f1a35-863c-4c55-9a13-d00092f0ff2d';
+    const url = `https://mainnet.helius-rpc.com/?api-key=${key}`;
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'balance-check',
+                method: 'getBalance',
+                params: [walletAddress]
+            })
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+        return data.result.value / 1e9; // lamports → SOL
+    } catch (err) {
+        console.error(`[getBalance] 请求失败：${err.message}`);
+        return null;
+    }
+}
+
+/**
+ * 获取钱包身份 (identity API)
+ * API: /v1/wallet/{address}/identity
+ *
+ * @param {string} walletAddress - 钱包地址
+ * @param {string} [apiKey] - Helius API Key (可选)
+ * @returns {Promise<{name?: string, type?: string} | null>}
+ */
+export async function getWalletIdentity(walletAddress, apiKey) {
+    const key = apiKey || process.env.HELIUS_API_KEY || 'f43f1a35-863c-4c55-9a13-d00092f0ff2d';
+    const url = `https://api.helius.xyz/v1/wallet/${walletAddress}/identity?api-key=${key}`;
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (err) {
+        console.error(`[identity] 请求失败：${err.message}`);
+        return null;
+    }
 }
 
 // 从页面获取当前价格

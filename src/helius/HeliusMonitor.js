@@ -15,6 +15,7 @@ import MetricsEngine from './MetricsEngine.js';
 import DataFetcher from './DataFetcher.js';
 import ScoringEngine from './ScoringEngine.js';
 import dataFlowLogger from '../utils/Logger.js';
+import { getWalletFundedBy, getWalletBalance } from '../utils/api.js';
 
 export default class HeliusMonitor {
   constructor(mintAddress, apiKey = '') {
@@ -1246,77 +1247,89 @@ export default class HeliusMonitor {
           doneCount++;
           const shortAddr = `${address.slice(0, 6)}..${address.slice(-4)}`;
           try {
-            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 翻页中...`);
-            let before = undefined;
-            let lastBatch = [];
-            let pageCount = 0;
-            const MAX_PAGES = this.bossConfig?.hidden_relay_max_pages || 10;
+            let isRelay = false;
+            let conditions = [];
+            let skipReason = null;
 
-            for (let page = 0; page < MAX_PAGES; page++) {
-              if (this.isStopped) return; // 停止检查：翻页中
-              const sigs = await this.dataFetcher.call('getSignaturesForAddress',
-                [address, { limit: 1000, ...(before ? { before } : {}) }]
-              );
-              if (!Array.isArray(sigs) || sigs.length === 0) break;
-              lastBatch = sigs;
-              pageCount++;
-              if (sigs.length < 1000) break;
-              before = sigs[sigs.length - 1].signature;
-              await new Promise(r => setTimeout(r, 500));
-            }
+            // ========== 新增优化逻辑：使用 funded-by API ===========
+            // 1. 先调用 funded-by 获取资金来源和首笔交易
+            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 获取 funded-by...`);
+            const fundedBy = await getWalletFundedBy(address);
 
-            if (lastBatch.length === 0) {
-              await this.cacheManager.saveHiddenRelayResult(address, this.mint, { isRelay: false, conditions: [] });
-              userInfo[address].has_hidden_relay = false;
-              userInfo[address].hidden_relay_conditions = [];
-              continue;
-            }
-
-            const totalSigs = (pageCount - 1) * 1000 + lastBatch.length;
-            const oldestSig = lastBatch[lastBatch.length - 1].signature;
-            sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 共${totalSigs}条sig，检测第1笔...`);
-            // [调试] 输出最旧的 sig，方便复查
-            console.log(`[中转检测-sig] ${shortAddr} 最旧sig: ${oldestSig}`);
-
-            if (this.isStopped) return; // 停止检查：getTransaction 前
-
-            const tx = await this.dataFetcher.call('getTransaction', [
-              oldestSig,
-              { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
-            ]);
-
-            // [调试] 输出 tx 关键信息，方便复查
-            if (tx) {
-              const ixList = tx.transaction?.message?.instructions || [];
-              const slot = tx.slot || '?';
-              const blockTime = tx.blockTime ? new Date(tx.blockTime * 1000).toISOString() : '?';
-              const ixSummary = ixList.map(ix => `${ix.program || '?'}/${ix.parsed?.type || 'raw'}`).join(', ');
-              console.log(`[中转检测-tx] ${shortAddr} slot=${slot} 时间=${blockTime} 指令=[${ixSummary}]`);
+            if (!fundedBy?.funder) {
+              // 无资金来源 → 条件 1 已成立，标记为中转
+              isRelay = true;
+              conditions = ['no_funding_source'];
+              userInfo[address].funding_account = null;
+              skipReason = '无资金来源';
             } else {
-              console.log(`[中转检测-tx] ${shortAddr} tx获取失败(null)`);
+              // 有资金来源
+              const funder = fundedBy.funder;
+              const fundingTxSig = fundedBy.signature;
+
+              userInfo[address].funding_account = funder;
+
+              // 2. 使用 funded-by 返回的 signature 直接检测隐藏中转（条件 2）
+              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 检测首笔交易...`);
+              console.log(`[中转检测-sig] ${shortAddr} funded-by signature: ${fundingTxSig}`);
+
+              let tx = null;
+              try {
+                tx = await this.dataFetcher.call('getTransaction', [
+                  fundingTxSig,
+                  { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }
+                ]);
+              } catch (txErr) {
+                console.warn(`[中转检测-tx] ${shortAddr} 获取失败：${txErr.message}`);
+              }
+
+              if (tx) {
+                const ixList = tx.transaction?.message?.instructions || [];
+                const slot = tx.slot || '?';
+                const blockTime = tx.blockTime ? new Date(tx.blockTime * 1000).toISOString() : '?';
+                const ixSummary = ixList.map(ix => `${ix.program || '?'}/${ix.parsed?.type || 'raw'}`).join(', ');
+                console.log(`[中转检测-tx] ${shortAddr} slot=${slot} 时间=${blockTime} 指令=[${ixSummary}]`);
+
+                const result = this.isHiddenRelayTx(tx);
+                isRelay = result.isRelay;
+                conditions = result.conditions;
+              }
+
+              // 3. 如果条件 2 不成立，检查条件 3（来源账户余额为 0）
+              if (!isRelay) {
+                sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} 检查来源余额...`);
+                const balance = await getWalletBalance(funder);
+                console.log(`[中转检测-balance] ${shortAddr} 来源账户${funder.slice(0, 8)}... 余额：${balance} SOL`);
+
+                if (balance === 0) {
+                  // 条件 3 成立：余额为 0
+                  isRelay = true;
+                  conditions = ['source_balance_zero'];
+                  userInfo[address].source_balance_zero = true;
+                  skipReason = '来源余额为 0';
+                } else if (balance !== null) {
+                  userInfo[address].source_balance_zero = false;
+                }
+              }
             }
 
-            let isRelay = false, conditions = [];
-            if (tx) {
-              const result = this.isHiddenRelayTx(tx);
-              isRelay = result.isRelay;
-              conditions = result.conditions;
-            }
-
+            // ========== 检测结果写入 ===========
             userInfo[address].has_hidden_relay = isRelay;
             userInfo[address].hidden_relay_conditions = conditions;
 
-            // 写入 IndexedDB（替代 chrome.storage.set）
+            // 写入 IndexedDB
             await this.cacheManager.saveHiddenRelayResult(address, this.mint, { isRelay, conditions });
 
             if (isRelay) {
               relayCount++;
-              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} ⚠ 中转[${conditions.join('+')}]`);
+              const condStr = conditions.join('+');
+              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} ⚠ 中转 [${condStr}]${skipReason ? ` (${skipReason})` : ''}`);
             } else {
-              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} - 普通`);
+              sendLog(`[中转检测] (${doneCount}/${total}) ${shortAddr} - 散户`);
             }
 
           } catch (err) {
+            console.error(`[中转检测] ${shortAddr} 异常：${err.message}`);
             userInfo[address].has_hidden_relay = false;
             userInfo[address].hidden_relay_conditions = [];
           }
