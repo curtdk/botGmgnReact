@@ -1991,6 +1991,11 @@ const App = () => {
                       {/* 资金来源 */}
                       <div style={{ color: '#60a5fa', fontWeight: 'bold', marginTop: '8px', marginBottom: '4px' }}>🔗 资金来源</div>
                       funding_account: {selectedItem.funding_account || '无'}<br/>
+                      {selectedItem.funding_account && (
+                          <>
+                          来源账户余额：{selectedItem.source_balance_zero === true ? '0 SOL' : (selectedItem.source_balance_zero === false ? '有余额' : '-')}<br/>
+                          </>
+                      )}
                       source_text: {selectedItem.source_text || '-'}<br/>
                       wallet_age: {selectedItem.wallet_age || '-'}<br/>
                       sol_balance: {selectedItem.sol_balance || '-'}<br/>

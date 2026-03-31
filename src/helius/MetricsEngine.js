@@ -536,4 +536,16 @@ export default class MetricsEngine {
   updateBossConfig(config) {
     Object.assign(this.bossConfig, config);
   }
+
+  // ─────────────────────────────────────────────────────────
+  // 4大参数计算报告（历史初始化完成后输出）
+  // ─────────────────────────────────────────────────────────
+
+  /**
+   * 输出初始化计算报告（从最早交易到最新的汇总）
+   */
+  printCalculationReport(_processedOrder) {
+    console.log('[MetricsEngine] 初始化计算完成');
+    // 4大参数已集成到 getMetrics() 中实时输出，此方法仅作占位
+  }
 }

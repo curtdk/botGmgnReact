@@ -8,8 +8,8 @@
   "host_permissions": ["*://gmgn.ai/*", "*://mainnet.helius-rpc.com/*"],
   "background": { "service_worker": "background.js" },
   "side_panel": { "default_path": "src/sidepanel/index.html" },
-  "content_scripts": [
-    {
+"content_scripts": [
+{
       "matches": ["*://gmgn.ai/*"],
       "js": ["src/content/index.jsx"],
       "run_at": "document_idle"
