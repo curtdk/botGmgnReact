@@ -1072,18 +1072,21 @@ export default class HeliusMonitor {
 
   _scheduleSlowScore() {
     if (!this.bossConfig.enable_hidden_relay) return;
-    console.log('[评分-慢速] ▶ _scheduleSlowScore 已触发（500ms 后运行）');
+    // 停止时立即取消定时器，不再触发
     clearTimeout(this._slowScoreTimer);
+    clearTimeout(this._slowScoreRepeatTimer);
+    if (this.isStopped) return;
+    console.log('[评分 - 慢速] ▶ _scheduleSlowScore 已触发（500ms 后运行）');
     this._slowScoreTimer = setTimeout(async () => {
       if (this.isStopped) return;
       // 已在检测中：不重置已确认状态，直接跳过（防止 label 闪烁回"普通"）
       if (this._relayDetecting) return;
-      console.log(`[评分-慢速] ▶ 开始 detectHiddenRelays...`);
+      console.log(`[评分 - 慢速] ▶ 开始 detectHiddenRelays...`);
       // 运行 detectHiddenRelays（只处理尚未检测过的用户，已检测过的自动跳过）
       await this.detectHiddenRelays();
       if (this.isStopped) return;
       if (Object.keys(this.metricsEngine.traderStats).length === 0) return;
-      console.log(`[评分-慢速] detectHiddenRelays 完成，重新全量打分...`);
+      console.log(`[评分 - 慢速] detectHiddenRelays 完成，重新全量打分...`);
       // 慢速检测完成后，重新全量打分（含 has_hidden_relay 结果）
       const { scoreMap, whaleAddresses } = this.scoringEngine.calculateScores(
         this.metricsEngine.traderStats,
@@ -1096,21 +1099,15 @@ export default class HeliusMonitor {
         if (this.metricsEngine.traderStats[address]) {
           this.metricsEngine.traderStats[address].score = scoreData.score;
           this.metricsEngine.traderStats[address].score_reasons = scoreData.reasons;
-          // 直接使用 calculateScores 三态结果（与 updateHolderData / _scheduleQuickScore 一致）
-          // needsSlowConfirm=true → scoreData.status='普通' → 不强制覆盖，保留等待状态
-          // needsSlowConfirm=false → scoreData.status='散户'/'庄家' → 写入最终状态
           this.metricsEngine.traderStats[address].status = scoreData.status;
         }
       }
-      // filteredUsers = score < threshold 的全部用户（含散户 + 仍是普通的用户）
       const filteredUsers = this.filterUsersByScore(scoreMap);
       this.metricsEngine.updateWhaleAddresses(whaleAddresses);
       this.metricsEngine.setFilteredUsers(filteredUsers);
       this._logScoringResult('慢速', scoreMap, filteredUsers, whaleAddresses);
-      // 触发 UI 更新：4大参数重算 + 实时列表 label 刷新
       this.recalculateMetrics();
-      // [调试] 慢速评分结束，打印全部 traderStats
-      console.log('[慢速评分-完成] traderStats 完整快照:',
+      console.log('[慢速评分 - 完成] traderStats 完整快照:',
         Object.entries(this.metricsEngine.traderStats).map(([addr, info]) => ({
           addr: `${addr.slice(0, 6)}..${addr.slice(-4)}`,
           score: info.score,
@@ -1122,13 +1119,14 @@ export default class HeliusMonitor {
         }))
       );
       // ── 自循环：完成后 1 秒再次触发（持续检测新加入用户）──
+      // 停止时不再触发
       if (!this.isStopped) {
         clearTimeout(this._slowScoreRepeatTimer);
         this._slowScoreRepeatTimer = setTimeout(() => {
           if (!this.isStopped) this._scheduleSlowScore();
         }, 1000);
       }
-    }, 500); // 500ms 防抖，与 quickScore 对齐，更快触发慢速检测
+    }, 500);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -1195,13 +1193,17 @@ export default class HeliusMonitor {
       // 跳过条件：
       //  0. 已确认为"庄家" → 无需中转检测
       //  1. 无资金来源（funding_account 为空）→ rule 9 条件1已直接成立，无需慢速检测
+      // 跳过条件：
+      //  0. 已确认为"庄家"或"散户" → 无需中转检测（状态已从数据库加载）
+      //  1. 无资金来源（funding_account 为空）→ rule 9 条件 1 已直接成立，无需慢速检测
       //  2. 已有隐藏中转检测结果（hiddenRelayCheckedAt 存在）
-      //  3. 已有评分记录（上次已完整处理过，不再做慢速 sig 翻页）
       const unchecked = allUsers.filter(u => {
-        // ⓪ 已确认庄家，跳过（只处理"普通"用户）
-        if (userInfo[u]?.status === '庄家') return false;
+        const userStatus = userInfo[u]?.status;
+        // ⓪ 已确认庄家或散户，跳过（只处理"普通"用户）
+        //    状态可能从 IndexedDB 加载，已是最终状态，不需重复检测
+        if (userStatus === '庄家' || userStatus === '散户') return false;
 
-        // ① 有 holder 快照且确认无资金来源 → 条件1(无资金来源)已覆盖，跳过链上检测
+        // ① 有 holder 快照且确认无资金来源 → 条件 1(无资金来源) 已覆盖，跳过链上检测
         //    注意：trade-only 用户的 has_holder_snapshot 未设置，funding_account=undefined
         //          不代表确认无来源，应该进入检测
         if (userInfo[u]?.has_holder_snapshot === true && !userInfo[u]?.funding_account) return false;
