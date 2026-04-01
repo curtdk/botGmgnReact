@@ -9,6 +9,10 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     const [autoUpdateSec, setAutoUpdateSec] = useState(2);
     const [bossDetectSec, setBossDetectSec] = useState(10); // 新增状态
     
+    // GMGN 翻页设置
+    const [gmgnMaxPages, setGmgnMaxPages] = useState(30);
+    const [gmgnPageDelay, setGmgnPageDelay] = useState(1000);
+    
     // 开关配置
     const [hookRefreshEnabled, setHookRefreshEnabled] = useState(false); // Hook 自动刷新
 
@@ -52,6 +56,7 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
     useEffect(() => {
         chrome.storage.local.get([
             'env_keys', 'holder_limit', 'holder_max', 'auto_update_sec', 'boss_detect_sec',
+            'gmgn_max_pages', 'gmgn_page_delay',
             'hook_refresh_enabled',
             'api_refresh_enabled', 'activity_monitor_enabled', 'activity_monitor_interval', 'observer_enabled', 'observer_interval', 'boss_rule_source_empty', 'boss_rule_activity',
             'auto_sync_remarks', // [新增]
@@ -64,6 +69,8 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             if(res.holder_max) setHolderMax(res.holder_max);
             if(res.auto_update_sec) setAutoUpdateSec(res.auto_update_sec);
             if(res.boss_detect_sec) setBossDetectSec(res.boss_detect_sec);
+            if(res.gmgn_max_pages !== undefined) setGmgnMaxPages(res.gmgn_max_pages);
+            if(res.gmgn_page_delay !== undefined) setGmgnPageDelay(res.gmgn_page_delay);
             
             if(res.hook_refresh_enabled !== undefined) setHookRefreshEnabled(res.hook_refresh_enabled);
 
@@ -117,6 +124,8 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
             holder_max: parseInt(holderMax),
             auto_update_sec: parseInt(autoUpdateSec),
             boss_detect_sec: parseInt(bossDetectSec),
+            gmgn_max_pages: parseInt(gmgnMaxPages),
+            gmgn_page_delay: parseInt(gmgnPageDelay),
             
             hook_refresh_enabled: hookRefreshEnabled,
 
@@ -252,6 +261,11 @@ const SettingsModal = ({ onClose, onSave, scoreManager }) => {
                         <label style={labelStyle}>Limit / Max</label>
                         <input type="number" value={holderLimit} onChange={e=>setHolderLimit(e.target.value)} style={inputStyle} placeholder="100"/>
                         <input type="number" value={holderMax} onChange={e=>setHolderMax(e.target.value)} style={inputStyle} placeholder="1000"/>
+                    </div>
+                    <div className="row" style={rowStyle}>
+                        <label style={labelStyle}>GMGN 翻页</label>
+                        <input type="number" value={gmgnMaxPages} onChange={e=>setGmgnMaxPages(e.target.value)} style={inputStyle} placeholder="最大翻页" title="每次 GMGN 分页最多翻几页"/>
+                        <input type="number" value={gmgnPageDelay} onChange={e=>setGmgnPageDelay(e.target.value)} style={inputStyle} placeholder="间隔ms" title="每翻一页前暂停的毫秒数"/>
                     </div>
                     <div className="row" style={rowStyle}>
                         <label style={labelStyle}>API Keys</label>
