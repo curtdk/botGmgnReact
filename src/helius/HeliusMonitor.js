@@ -26,6 +26,12 @@ export default class HeliusMonitor {
     this.cacheManager = new CacheManager();
     this.metricsEngine = new MetricsEngine();
     this.dataFetcher = new DataFetcher(this.cacheManager, apiKey);
+    // 设置 DataFetcher 的日志回调（转发到 App.jsx 底部日志面板）
+    this.dataFetcher.setStatusLogCallback((msg) => {
+      if (this.onStatusLog) {
+        try { this.onStatusLog(msg); } catch (_e) { /* ignore */ }
+      }
+    });
     this.scoringEngine = new ScoringEngine();
 
     // WebSocket

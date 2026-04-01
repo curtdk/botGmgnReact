@@ -1836,13 +1836,14 @@ const App = () => {
                   <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px' }}>WS错误: {heliusWsStatus.error}</div>
               )}
 
-              {/* 数据流日志控制 */}
+              {/* 数据流日志控制 - 已隐藏 */}
               <div style={{
                   marginTop: '8px',
                   padding: '8px',
                   backgroundColor: styles.colors.cardBg,
                   borderRadius: '4px',
-                  border: `1px solid ${styles.colors.border}`
+                  border: `1px solid ${styles.colors.border}`,
+                  display: 'none' // 已隐藏
               }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                       <span style={{ fontSize: '11px', fontWeight: 'bold' }}>📋 数据流日志</span>

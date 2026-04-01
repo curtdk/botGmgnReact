@@ -14,10 +14,22 @@ export default class DataFetcher {
     this.cacheManager = cacheManager;
     this.totalCreditsUsed = 0;
     this.apiKey = apiKey;
+    this.onStatusLog = null; // 状态日志回调
   }
 
   setApiKey(key) {
     this.apiKey = key || '';
+  }
+
+  setStatusLogCallback(callback) {
+    this.onStatusLog = callback;
+  }
+
+  // 辅助：添加状态日志
+  _log(msg) {
+    if (this.onStatusLog) {
+      try { this.onStatusLog(`[DataFetcher] ${msg}`); } catch (_e) { /* ignore */ }
+    }
   }
 
   get rpcUrl() {
@@ -31,6 +43,7 @@ export default class DataFetcher {
   async call(method, params) {
     let retries = 5;
     let delay = 1000;
+    const methodName = method;
 
     while (retries > 0) {
       try {
@@ -41,6 +54,7 @@ export default class DataFetcher {
         });
 
         if (response.status === 429) {
+          this._log(`⚠️ API 限流 (429)，等待 ${delay}ms 后重试...`);
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
           retries--;
@@ -53,11 +67,13 @@ export default class DataFetcher {
 
         if (data.error) {
           if (data.error.code === -32429) {
+            this._log(`⚠️ RPC 错误 -32429 (解析错误)，等待 ${delay}ms 后重试...`);
             await new Promise(r => setTimeout(r, delay));
             delay *= 2;
             retries--;
             continue;
           }
+          this._log(`❌ RPC Error: ${JSON.stringify(data.error)}`);
           throw new Error(`RPC Error: ${JSON.stringify(data.error)}`);
         }
 
@@ -65,13 +81,14 @@ export default class DataFetcher {
 
       } catch (error) {
         if (retries === 1) {
+          this._log(`❌ ${methodName} 失败: ${error.message}`);
           throw error;
         }
         // 网络层错误（ERR_CONNECTION_CLOSED 等 TypeError）使用更长延迟
         const isNetworkError = error instanceof TypeError || error.message?.includes('CONNECTION');
         const waitMs = isNetworkError ? Math.max(delay, 2000) : delay;
         if (isNetworkError) {
-          console.warn(`[DataFetcher] 网络错误，${waitMs}ms 后重试（剩余${retries - 1}次）: ${error.message}`);
+          this._log(`⚠️ 网络错误: ${error.message}，${waitMs}ms 后重试（剩余${retries - 1}次）`);
         }
         await new Promise(r => setTimeout(r, waitMs));
         delay *= 2;
@@ -281,6 +298,7 @@ export default class DataFetcher {
           }
           return result;
         } catch (err) {
+          this._log(`❌ getTransaction 失败: sig=${sig.slice(0, 16)}... | ${err.message}`);
           console.error(
             `%c[Helius API 网络错误] fetchParsedTxs 获取 tx 失败 sig=${sig.slice(0, 16)}... | ${err.message}`,
             'color: red; font-weight: bold'
